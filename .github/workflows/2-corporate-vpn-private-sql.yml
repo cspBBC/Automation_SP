@@ -1,88 +1,88 @@
-name: Tests - Corporate VPN (Private SQL Server)
+# name: Tests - Corporate VPN (Private SQL Server)
 
-# Run tests on push and pull requests
-on:
-  push:
-    branches: [ main, develop ]
-  pull_request:
-    branches: [ main, develop ]
+# # Run tests on push and pull requests
+# on:
+#   push:
+#     branches: [ main, develop ]
+#   pull_request:
+#     branches: [ main, develop ]
 
-jobs:
-  test:
-    runs-on: windows-latest
+# jobs:
+#   test:
+#     runs-on: windows-latest
     
-    steps:
-    - uses: actions/checkout@v3
+#     steps:
+#     - uses: actions/checkout@v3
     
-    - name: Connect to VPN
-      run: |
-        # Example: OpenVPN connection
-        # Adjust based on your VPN provider
-        echo "WARNING: VPN connection setup required"
-        echo "Uncomment the VPN connection commands below based on your VPN provider"
+#     - name: Connect to VPN
+#       run: |
+#         # Example: OpenVPN connection
+#         # Adjust based on your VPN provider
+#         echo "WARNING: VPN connection setup required"
+#         echo "Uncomment the VPN connection commands below based on your VPN provider"
         
-        # Option 1: OpenVPN
-        # - Requires VPN credentials stored in GitHub Secrets
-        # - Install OpenVPN client and connect
-        # choco install openvpn -y
-        # $vpn_config = "${{ secrets.VPN_CONFIG_OPENVPN }}"
-        # Set-Content -Path "vpn-config.ovpn" -Value $vpn_config
-        # openvpn --config vpn-config.ovpn --daemon
-        # Start-Sleep -Seconds 10
+#         # Option 1: OpenVPN
+#         # - Requires VPN credentials stored in GitHub Secrets
+#         # - Install OpenVPN client and connect
+#         # choco install openvpn -y
+#         # $vpn_config = "${{ secrets.VPN_CONFIG_OPENVPN }}"
+#         # Set-Content -Path "vpn-config.ovpn" -Value $vpn_config
+#         # openvpn --config vpn-config.ovpn --daemon
+#         # Start-Sleep -Seconds 10
         
-        # Option 2: WireGuard
-        # - Download and install WireGuard
-        # choco install wireguard -y
-        # $wg_config = "${{ secrets.WIREGUARD_CONFIG }}"
-        # Set-Content -Path "$env:APPDATA\WireGuard\Configs\auto.conf" -Value $wg_config
-        # wg-quick up auto
+#         # Option 2: WireGuard
+#         # - Download and install WireGuard
+#         # choco install wireguard -y
+#         # $wg_config = "${{ secrets.WIREGUARD_CONFIG }}"
+#         # Set-Content -Path "$env:APPDATA\WireGuard\Configs\auto.conf" -Value $wg_config
+#         # wg-quick up auto
         
-        # Option 3: Cisco AnyConnect (if your corp uses this)
-        # choco install cisco-anyconnect -y
-        # Your corporation may provide connection scripts
+#         # Option 3: Cisco AnyConnect (if your corp uses this)
+#         # choco install cisco-anyconnect -y
+#         # Your corporation may provide connection scripts
         
-        echo "Manual VPN setup required - see comments above"
+#         echo "Manual VPN setup required - see comments above"
     
-    - name: Verify VPN connection
-      run: |
-        # Test connection to your SQL Server
-        # Replace with your actual server IP/hostname
-        $testHost = "${{ secrets.DB_HOST }}"
-        Write-Output "Testing connection to: $testHost"
-        Test-NetConnection -ComputerName $testHost -Port 1433 -InformationLevel Quiet
-        Write-Output "Connection test complete"
+#     - name: Verify VPN connection
+#       run: |
+#         # Test connection to your SQL Server
+#         # Replace with your actual server IP/hostname
+#         $testHost = "${{ secrets.DB_HOST }}"
+#         Write-Output "Testing connection to: $testHost"
+#         Test-NetConnection -ComputerName $testHost -Port 1433 -InformationLevel Quiet
+#         Write-Output "Connection test complete"
     
-    - name: Set up Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.10'
+#     - name: Set up Python
+#       uses: actions/setup-python@v4
+#       with:
+#         python-version: '3.10'
     
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install -r requirements.txt
+#     - name: Install dependencies
+#       run: |
+#         python -m pip install --upgrade pip
+#         pip install -r requirements.txt
     
-    - name: Run tests with private SQL Server (via VPN)
-      env:
-        DB_HOST: ${{ secrets.DB_HOST }}
-        DB_NAME: ${{ secrets.DB_NAME }}
-        DB_USER: ${{ secrets.DB_USER }}
-        DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
-      run: |
-        python -m tests.NP036_SP_run
+#     - name: Run tests with private SQL Server (via VPN)
+#       env:
+#         DB_HOST: ${{ secrets.DB_HOST }}
+#         DB_NAME: ${{ secrets.DB_NAME }}
+#         DB_USER: ${{ secrets.DB_USER }}
+#         DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+#       run: |
+#         python -m tests.NP036_SP_run
     
-    - name: Upload test logs
-      if: always()
-      uses: actions/upload-artifact@v3
-      with:
-        name: test-logs-vpn
-        path: tests/test_output.log
-        retention-days: 30
+#     - name: Upload test logs
+#       if: always()
+#       uses: actions/upload-artifact@v4
+#       with:
+#         name: test-logs-vpn
+#         path: tests/test_output.log
+#         retention-days: 30
     
-    - name: Disconnect VPN
-      if: always()
-      run: |
-        # Cleanup VPN connection
-        echo "Disconnecting VPN"
-        # openvpn --kill
-        # wg-quick down auto
+#     - name: Disconnect VPN
+#       if: always()
+#       run: |
+#         # Cleanup VPN connection
+#         echo "Disconnecting VPN"
+#         # openvpn --kill
+#         # wg-quick down auto
