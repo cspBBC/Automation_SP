@@ -1,0 +1,8 @@
+.env
+resources
+venv
+__pycache__
+contrib
+*.pyc
+
+
