@@ -4,12 +4,22 @@
       "case_id": "POSITIVE_CHAIN_CREATE_UPDATE_VALIDATE",
       "case_type": "POSITIVE",
       "description": "3-step chain: Create team, update allocations, update miscellaneous",
+      "post_sql": [
+        "select * from schedulingteams where schedulingteamid = {created_team_id}",
+        "select * from history where userid = {intuserid} and attributeid = {created_team_id} order by historyid desc",
+        "select * from SchedulingGroupsTeamsLinks where schedulingteamid = {created_team_id}"
+      ],
+      "expected_post_state": [
+        {"row_count": 1, "expected_columns": {"schedulingTeamName": "{generated_team_name}", "schedulingTeamDescription": "Testing_POC", "isActive": 1}},
+        {"row_count":3},
+        {"row_count": 1}
+      ],
       "chain_config": [
         {
           "step": 1,
           "sp_name": "usp_CreateUpdateSchedulingTeam",
           "parameters": {
-            "@schedulingTeamName": "AutoTest_20260227_181957_457",
+            "@schedulingTeamName": "{generated_team_name}",
             "@schedulingTeamDescription": "Testing_POC",
             "@divisionId": 6,
             "@isActive": 1,
@@ -71,7 +81,7 @@
           "step": 2,
           "sp_name": "usp_CreateUpdateSchedulingTeam",
           "parameters": {
-            "@schedulingTeamName": "AutoTest_20260227_181957_457",
+            "@schedulingTeamName": "{generated_team_name}",
             "@schedulingTeamDescription": "Testing_POC",
             "@divisionId": 6,
             "@isActive": 1,
@@ -136,7 +146,7 @@
           "step": 3,
           "sp_name": "usp_CreateUpdateSchedulingTeam",
           "parameters": {
-            "@schedulingTeamName": "AutoTest_20260227_181957_457",
+            "@schedulingTeamName": "{generated_team_name}",
             "@schedulingTeamDescription": "Testing_POC",
             "@divisionId": 6,
             "@isActive": 1,
@@ -197,6 +207,12 @@
             "@intnewteamid": "created_team_id"
           }
         }
+      ],
+      "cleanup_sql": [
+        "DELETE FROM SchedulingGroupsTeamsLinks WHERE schedulingteamid = {created_team_id}",
+        "DELETE FROM Exported_rota WHERE schedulingteamid = {created_team_id}",
+        "DELETE FROM MasterRotas WHERE teamid = {created_team_id}",
+        "DELETE FROM SchedulingTeams WHERE schedulingteamid = {created_team_id}"
       ]
     }
   ]
