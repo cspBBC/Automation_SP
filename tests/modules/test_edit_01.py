@@ -2,6 +2,7 @@ import pytest
 import os, json
 
 from tests.helpers.sp_test_utils import run_stored_procedures, load_test_inputs
+from tests.helpers.preseed_utils import verify_preseed_exists
 from tests.modules.schGroup_output_validator import (
     getSchdGrpDetails,
     validateSchdGrpActive,
@@ -13,7 +14,11 @@ from tests.enums.test_enums import TestCaseType
 TEST_USER_ID = 10201
 
 @pytest.fixture
-def edited_team_id(db_transaction):
+def edited_team_id(db_transaction, request):
+    # ensure required reference rows exist (user, division, etc.)
+    verify_preseed_exists(request.fspath, 'createSchdGroup_user.sql')
+    verify_preseed_exists(request.fspath, 'createSchdGroup_division.sql')
+
     # create team first
     create_res = run_stored_procedures(
         'usp_CreateUpdateSchedulingTeam',
