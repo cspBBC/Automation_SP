@@ -5,5 +5,8 @@ __pycache__
 contrib
 *.pyc
 output
+.pytest_cache
+.vscode
+
 
 

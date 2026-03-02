@@ -32,6 +32,25 @@ def execute_query(sql: str, params: List = None) -> List[Dict[str, Any]]:
         return [{cols[i]: row[i] for i in range(len(cols))} for row in rows]
 
 
+def execute_statement(sql: str, params: List = None) -> int:
+    """Execute a DML statement (DELETE, UPDATE, INSERT) and return affected row count.
+
+    Unlike execute_query, this does not attempt to fetch results.
+    Safe for any non-SELECT statement.
+
+    Args:
+        sql: SQL string (DELETE, UPDATE, INSERT)
+        params: parameter values (not used if SQL has no placeholders)
+
+    Returns:
+        Number of rows affected by the operation
+    """
+    params = params or []
+    with DBSession() as db:
+        db.cursor.execute(sql, params)
+        return db.cursor.rowcount
+
+
 def get_entity_details(table_name: str, id_column: str, entity_id: int) -> Dict[str, Any]:
     """Fetch a single row from any table by primary key.
 

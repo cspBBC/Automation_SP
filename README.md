@@ -21,7 +21,7 @@ This directory contains a comprehensive test harness for validating SQL stored p
 ┌─────────────────────────────────────────────────────────────┐
 │                     TEST RUNNER                              │
 │         (NP036_SP_run.py or any user script)                │
-│  test_stored_procedures('usp_Name', TestCaseType, filename) │
+│  run_stored_procedures('usp_Name', TestCaseType, filename) │
 └────┬────────────────────────────────────────────────────────┘
      │
      ▼
@@ -171,14 +171,19 @@ class TestCaseType(Enum):
 
 #### **Function 1: load_test_inputs(test_inputs)**
 
+The loader now prefers JSON files living alongside their tests under `tests/modules`. Legacy copies in `tests/test_data` are still supported for backward compatibility but can be deleted once you've migrated everything.
+
 ```python
 def load_test_inputs(test_inputs):
-    """Load test inputs from JSON file in tests/test_data folder.
+    """Load test inputs from JSON file.
     
     Args:
-        test_inputs: Filename without extension (e.g., 'users_tests', 'shekjar', 'schgrp_fta').
-                    MANDATORY - must be provided.
-                    Function automatically appends .json extension.
+        test_inputs: Filename without extension (e.g., 'users_tests', 'schGroup_testData').
+                    MANDATORY. 
+                    A ".json" extension is appended if missing.
+
+    The function first checks `tests/modules/<filename>.json`; if no file is
+    found there it falls back to `tests/test_data/<filename>.json`.
     """
 ```
 
@@ -211,10 +216,10 @@ result = load_test_inputs('test_inputs1')
 
 ---
 
-#### **Function 2: test_stored_procedures(sp_name, case_type, test_inputs)**
+#### **Function 2: run_stored_procedures(sp_name, case_type, test_inputs)**
 
 ```python
-def test_stored_procedures(sp_name, case_type=None, test_inputs=None):
+def run_stored_procedures(sp_name, case_type=None, test_inputs=None):
     """
     Run test cases from JSON matching the given stored procedure name.
     
@@ -254,7 +259,7 @@ def test_stored_procedures(sp_name, case_type=None, test_inputs=None):
 
 **Example flow:**
 ```python
-test_stored_procedures('usp_CreateUpdateSchedulingTeam', TestCaseType.POSITIVE, 'test_inputs1')
+run_stored_procedures('usp_CreateUpdateSchedulingTeam', TestCaseType.POSITIVE, 'test_inputs1')
 # Step 1: Load test_inputs1.json
 # Step 2: Find 'usp_CreateUpdateSchedulingTeam' in loaded dict ✓ Found
 # Step 3: Get all test cases for this SP (array)
@@ -493,6 +498,8 @@ else:
 
 ### **load_test_inputs() Return Type: `dict`**
 
+> ⚠️ **Note:** The loader searches `tests/modules` first, so there's no need to keep copies in `tests/test_data` anymore. You can safely delete them.
+
 ```python
 {
   "usp_CreateUpdateSchedulingTeam": [
@@ -505,7 +512,7 @@ else:
 }
 ```
 
-### **test_stored_procedures() Return Type: `None`**
+### **run_stored_procedures() Return Type: `None`**
 
 - Prints all output to console
 - Raises `FileNotFoundError` if JSON file not found
@@ -551,10 +558,10 @@ from tests.enums.test_enums import TestCaseType
 test_stored_procedures('usp_CreateUpdateSchedulingTeam', TestCaseType.POSITIVE, "test_inputs1")
 
 # Run only NEGATIVE tests
-test_stored_procedures('usp_GetUsers', TestCaseType.NEGATIVE, "test_inputs1")
+run_stored_procedures('usp_GetUsers', TestCaseType.NEGATIVE, "test_inputs1")
 
 # Run only EDGE case tests
-test_stored_procedures('usp_ValidateTeam', TestCaseType.EDGE, "test_inputs1")
+run_stored_procedures('usp_ValidateTeam', TestCaseType.EDGE, "test_inputs1")
 ```
 
 ### **Create New Test File**
@@ -589,7 +596,7 @@ test_stored_procedures('usp_ValidateTeam', TestCaseType.EDGE, "test_inputs1")
 
 3. Use in tests:
 ```python
-test_stored_procedures('usp_YourProcedure', TestCaseType.POSITIVE, "my_tests")
+run_stored_procedures('usp_YourProcedure', TestCaseType.POSITIVE, "my_tests")
 ```
 
 ### **Add Chained Tests**
@@ -657,7 +664,7 @@ Copy this into your JSON test file and fill in values.
 | **TestCaseType Enum** | Categorize tests (POSITIVE/NEGATIVE/EDGE) | Classification |
 | **JSON Test File** | Define test data and expected behavior | Data |
 | **load_test_inputs()** | Parse JSON into Python dict | Loader |
-| **test_stored_procedures()** | Main orchestrator function | Controller |
+| **run_stored_procedures()** | Main orchestrator function | Controller |
 | **_execute_single_test()** | Run one SP once | Executor |
 | **_execute_chain_test()** | Run multiple SPs sequentially | Executor |
 | **SPChainExecutor** | Manages chained SP execution | Engine |
@@ -673,7 +680,7 @@ Copy this into your JSON test file and fill in values.
 | Enum | Type safety, prevent typos | Can't use invalid case types by accident |
 | JSON files | Separate data from code | Add tests without recompiling code |
 | load_test_inputs() | Centralize loading logic | Flexible filenames, consistent error handling |
-| test_stored_procedures() | Main orchestration | One function call runs entire test workflow |
+| run_stored_procedures() | Main orchestration | One function call runs entire test workflow |
 | Single test function | Basic execution | Simplest case is straightforward |
 | Chain test function | Complex workflows | Real-world scenarios need multiple SPs |
 | SPChainExecutor | State management | Track data passed between steps |

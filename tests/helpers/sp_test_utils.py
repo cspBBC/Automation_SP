@@ -101,11 +101,13 @@ def load_test_inputs(test_inputs):
     # Automatically append .json if not present
     if not filename.endswith('.json'):
         filename = f"{filename}.json"
-    test_file = os.path.join(base, 'test_data', filename)
-    
+    # First look in the modules directory (where we now keep scenario data).
+    module_path = os.path.join(base, 'modules', filename)
+    test_file = module_path if os.path.exists(module_path) else os.path.join(base, 'test_data', filename)
+
     if not os.path.exists(test_file):
         raise FileNotFoundError(f"Test input file not found: {test_file}")
-    
+
     with open(test_file, 'r') as f:
         return json.load(f)
 
@@ -187,7 +189,7 @@ def _get_column_names(table_name):
         return []
 
 
-def test_stored_procedures(sp_name, case_type=None, test_inputs=None):
+def run_stored_procedures(sp_name, case_type=None, test_inputs=None):
     """
     Run test cases from JSON matching the given stored procedure name.
     
@@ -385,7 +387,6 @@ def test_stored_procedures(sp_name, case_type=None, test_inputs=None):
         # Make direct access to common fields easier
         result_summary['created_team_id'] = test_results[0]['chain_data'].get('created_team_id')
         result_summary['generated_team_name'] = test_results[0]['chain_data'].get('generated_team_name')
-        result_summary['intuserid'] = test_results[0]['chain_data'].get('intuserid')
     
     # If there's context, extract generated values
     if test_results and test_results[0].get('context'):
