@@ -110,6 +110,9 @@ def load_test_inputs(test_inputs):
         return json.load(f)
 
 
+# Validator loading removed: validators are not used in the simplified flow.
+
+
 def configure_logging():
     """Configure logging to output to console and file"""
     logging.basicConfig(
@@ -263,6 +266,7 @@ def test_stored_procedures(sp_name, case_type=None, test_inputs=None):
         logger.info(f"{'='*80}")
         
         case_passed = True  # Track if this test case passed
+        case_chain_data = {}  # Store chain execution data
         
         try:
             # create initial context; include any supplied integer user id
@@ -280,6 +284,9 @@ def test_stored_procedures(sp_name, case_type=None, test_inputs=None):
             chain_result = None
             if 'chain_config' in test_case:
                 chain_result = _execute_chain_test(test_case['chain_config'], context=ctx, logger=logger)
+                # Capture chain data for return
+                if chain_result and chain_result.get('chain_data'):
+                    case_chain_data = chain_result.get('chain_data', {})
             else:
                 parameters = test_case['parameters']
                 # format parameters using context
@@ -287,33 +294,30 @@ def test_stored_procedures(sp_name, case_type=None, test_inputs=None):
                 _execute_single_test(sp_name, parameters, logger=logger)
 
             # execute verification / cleanup queries after SP call
+            # Support both JSON-defined SQL and validator-based approach
+            
+            # Determine validation context
+            if 'chain_config' in test_case:
+                first_step = test_case['chain_config'][0]
+                params = first_step.get('parameters', {})
+            else:
+                params = test_case.get('parameters', {})
+            ctx_validation = _make_context(params, chain_data=(chain_result or {}).get('chain_data'))
+            ctx_validation.update(ctx)
+            
+            # Execute JSON-defined post-validation SQL if provided
             if test_case.get('post_sql'):
-                # For chain tests, extract params from first step; for single tests use top-level params
-                if 'chain_config' in test_case:
-                    first_step = test_case['chain_config'][0]
-                    params = first_step.get('parameters', {})
-                else:
-                    params = test_case.get('parameters', {})
-                ctx2 = _make_context(params, chain_data=(chain_result or {}).get('chain_data'))
-                # preserve any generated values
-                ctx2.update(ctx)
-                post_results = _run_sql_list(test_case['post_sql'], label="POST", context=ctx2, logger=logger)
-                
+                post_results = _run_sql_list(test_case['post_sql'], label="POST", context=ctx_validation, logger=logger)
+
                 # Validate against expected post-state if provided
                 if test_case.get('expected_post_state'):
-                    validation_passed = _validate_post_state(post_results, test_case['expected_post_state'], ctx2, logger=logger)
+                    validation_passed = _validate_post_state(post_results, test_case['expected_post_state'], ctx_validation, logger=logger)
                     if not validation_passed:
                         case_passed = False
             
             # Execute cleanup SQL if provided
             if test_case.get('cleanup_sql'):
-                params = test_case.get('parameters', {})
-                if 'chain_config' in test_case:
-                    first_step = test_case['chain_config'][0]
-                    params = first_step.get('parameters', {})
-                ctx_cleanup = _make_context(params, chain_data=(chain_result or {}).get('chain_data'))
-                ctx_cleanup.update(ctx)
-                _run_sql_list(test_case['cleanup_sql'], label="CLEANUP", context=ctx_cleanup, logger=logger)
+                _run_sql_list(test_case['cleanup_sql'], label="CLEANUP", context=ctx_validation, logger=logger)
         except Exception as e:
             error_msg = f"Error: {e}"
             if logger:
@@ -325,11 +329,13 @@ def test_stored_procedures(sp_name, case_type=None, test_inputs=None):
             print(traceback.format_exc())
             case_passed = False
         
-        # Record test result
+        # Record test result with chain data
         test_results.append({
             'case_id': case_id,
             'case_type': case_type_label,
-            'passed': case_passed
+            'passed': case_passed,
+            'chain_data': case_chain_data,  # Include created IDs, names, etc.
+            'context': ctx  # Include execution context
         })
     
     # Log completion with colored output
@@ -362,6 +368,30 @@ def test_stored_procedures(sp_name, case_type=None, test_inputs=None):
         print(separator)
         print(Colors.success(f"Test Execution Completed: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"))
         print(separator)
+    
+    # Return results summary with chain data for post-test queries
+    result_summary = {
+        'success': all(r['passed'] for r in test_results),
+        'passed_count': passed_count,
+        'failed_count': failed_count,
+        'test_results': test_results,
+        'log_file': log_file,
+        'total_tests': len(test_results)
+    }
+    
+    # If there's chain data, extract from first passing test result
+    if test_results and test_results[0].get('chain_data'):
+        result_summary['chain_data'] = test_results[0]['chain_data']
+        # Make direct access to common fields easier
+        result_summary['created_team_id'] = test_results[0]['chain_data'].get('created_team_id')
+        result_summary['generated_team_name'] = test_results[0]['chain_data'].get('generated_team_name')
+        result_summary['intuserid'] = test_results[0]['chain_data'].get('intuserid')
+    
+    # If there's context, extract generated values
+    if test_results and test_results[0].get('context'):
+        result_summary['context'] = test_results[0]['context']
+    
+    return result_summary
 
 
 def _execute_single_test(sp_name, parameters, logger=None):
@@ -549,6 +579,9 @@ def _execute_chain_test(chain_config, context=None, logger=None):
     finally:
         if connection:
             connection.close()
+
+
+# Validator execution removed - using JSON-defined post_sql/cleanup_sql only.
 
 
 def _validate_post_state(results, expected_config, context, logger=None):
