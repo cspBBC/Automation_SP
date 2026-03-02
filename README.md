@@ -53,17 +53,26 @@ This directory contains a comprehensive test harness for validating SQL stored p
 
 ```
 tests/
-├── __init__.py                          # Package marker
-├── NP036_SP_run.py                      # EXAMPLE: Test runner script
-├── test_data/
-│   ├── test_inputs.json                 # DEFAULT: Test cases JSON
-│   └── test_inputs1.json                # CUSTOM: Alternative test cases JSON
+├── __init__.py                          # package marker
+├── NP036_SP_run.py                      # legacy/example runner (optional)
+├── modules/                             # pytest test modules live here
+│   ├── test_create_01.py
+│   ├── test_edit_01.py
+│   ├── schGroup_output_validator.py     # scenario helpers
+│   ├── createSchdGroup_user.sql         # preseed SQL files
+│   ├── createSchdGroup_division.sql
+│   └── ...
+├── helpers/                             # reusable utilities
+│   ├── __init__.py                      # package marker
+│   ├── sp_test_utils.py                 # core engine (load/execute tests)
+│   ├── preseed_utils.py                 # verify reference data exists
+│   └── generic_query_helpers.py         # low‑level DB helpers
 ├── enums/
-│   ├── __init__.py                      # Package marker
-│   └── test_enums.py                    # Defines TestCaseType enum
-├── helpers/
-│   ├── __init__.py                      # Package marker
-│   └── sp_test_utils.py                 # CORE: Main testing utilities
+│   ├── __init__.py                      # package marker
+│   └── test_enums.py                    # TestCaseType enum definitions
+├── test_data/                           # legacy JSON location (still supported)
+│   ├── test_inputs.json                 # default test data
+│   └── test_inputs1.json                # alternate set
 └── __pycache__/                         # Python bytecode cache
 ```
 
@@ -171,7 +180,7 @@ class TestCaseType(Enum):
 
 #### **Function 1: load_test_inputs(test_inputs)**
 
-The loader now prefers JSON files living alongside their tests under `tests/modules`. Legacy copies in `tests/test_data` are still supported for backward compatibility but can be deleted once you've migrated everything.
+The loader prefers JSON files placed next to the pytest modules under `tests/modules` (this keeps data close to the code). Legacy copies in `tests/test_data` are still supported for backward compatibility but can be removed once all tests have been migrated.
 
 ```python
 def load_test_inputs(test_inputs):
