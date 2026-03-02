@@ -378,3 +378,167 @@ def _execute_chain_test(chain_config: List[Dict], context: Dict = None, logger=N
     finally:
         if connection:
             connection.close()
+
+
+def run_stored_procedures_from_csv(filter_executed: bool = True) -> Dict[str, Any]:
+    """Auto-discovery scaffold framework for CSV-driven test execution.
+    
+    No arguments needed - everything comes from CSV!
+    
+    Scaffold Pattern:
+    1. Automatically reads data_layer/test_data/keyword_driven_tests.csv
+    2. Extracts unique module names (SPs) from CSV
+    3. For each module, searches for matching folder in test data
+    4. Loads template from {module_folder}/generic_template.json
+    5. Executes test cases based on CSV contents
+    
+    Args:
+        filter_executed: If True, only run rows where Executed='Yes' (default: True)
+    
+    Returns:
+        Result summary dictionary with all test results
+        
+    Example:
+        # No arguments - everything auto-discovered from CSV
+        result = run_stored_procedures_from_csv()
+        
+        # Or filter to executed tests only (default)
+        result = run_stored_procedures_from_csv(filter_executed=True)
+    """
+    from test_engine_layer.template_transformer import TemplateTransformer
+    
+    logger = setup_logging()
+    logger.info(f"\n{'='*90}")
+    logger.info(f"Auto-Discovery CSV Test Execution (Scaffold): {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    logger.info(f"Filter Executed: {filter_executed}")
+    logger.info(f"{'='*90}\n")
+    
+    try:
+        # Step 1: Find and load CSV from default location
+        csv_filename = 'keyword_driven_tests.csv'  # Loader adds data_layer/test_data/ prefix
+        csv_path = 'data_layer/test_data/keyword_driven_tests.csv'
+        
+        if not os.path.exists(csv_path):
+            logger.error(f"CSV not found: {csv_path}")
+            return {'error': f'CSV file not found: {csv_path}'}
+        
+        logger.info(f"CSV File: {csv_path}")
+        
+        # Step 2: Load CSV to identify unique modules
+        # Pass just the filename - loader adds data_layer/test_data/ prefix automatically
+        csv_data = DataLoaderFactory.load(csv_filename, loader_type='keyword_driven')
+        
+        if not csv_data:
+            logger.warning("No data loaded from CSV")
+            return {}
+        
+        # Extract unique module names from CSV
+        unique_modules = list(csv_data.keys())
+        logger.info(f"Discovered {len(unique_modules)} unique module(s) in CSV: {unique_modules}\n")
+        
+        # Step 3: For each module, find its folder and template
+        all_results = {}
+        # Prefer any test transaction connection (set by pytest fixture) to avoid committing
+        from database_layer.transaction_manager import get_test_transaction
+        test_tx = get_test_transaction()
+        if test_tx:
+            connection = test_tx
+            logger.info("Using test transaction connection (will be rolled back by fixture)")
+        else:
+            connection = get_connection()
+        
+        for module_name in unique_modules:
+            # Search for module-specific template file: {module_name}.json
+            test_data_base = 'data_layer/test_data'
+            template_file = os.path.join(test_data_base, f"{module_name}.json")
+            
+            # Verify template exists
+            if not os.path.exists(template_file):
+                logger.warning(f"Template not found: {template_file}")
+                logger.info(f"  Skipping module: {module_name}")
+                continue
+            
+            logger.info(f"Module: {module_name}")
+            logger.info(f"  Template: {template_file}")
+            
+            # Step 4: Transform CSV data using discovered template
+            test_data_for_module = TemplateTransformer.load_and_transform(
+                csv_filename,  # Just filename - loader adds prefix
+                template_file=template_file,
+                filter_executed=filter_executed,
+                module_filter=module_name  # Only this module
+            )
+            
+            if not test_data_for_module or module_name not in test_data_for_module:
+                logger.info(f"  No test cases after filtering for {module_name}")
+                continue
+            
+            test_cases = test_data_for_module[module_name]
+            logger.info(f"  Loaded {len(test_cases)} test case(s)\n")
+            
+            # Step 5: Execute test cases
+            module_results = []
+            for test_case in test_cases:
+                case_id = test_case.get('Test Case ID', 'unknown')
+                logger.info(f"  Executing: {case_id}")
+                
+                try:
+                    if 'chain_config' in test_case and test_case['chain_config']:
+                        executor = SPChainExecutor(connection)
+                        result = executor.execute_chain(test_case['chain_config'])
+                        # Respect executor result status: mark failed when chain reports failure
+                        if isinstance(result, dict) and not result.get('success', True):
+                            module_results.append({
+                                'case_id': case_id,
+                                'status': 'failed',
+                                'error': result.get('error'),
+                                'result': result
+                            })
+                        else:
+                            module_results.append({
+                                'case_id': case_id,
+                                'status': 'passed',
+                                'result': result
+                            })
+                    else:
+                        logger.warning(f"    No chain_config for {case_id}")
+                        module_results.append({
+                            'case_id': case_id,
+                            'status': 'skipped',
+                            'error': 'No chain_config'
+                        })
+                
+                except Exception as e:
+                    logger.error(f"    Failed: {e}")
+                    module_results.append({
+                        'case_id': case_id,
+                        'status': 'failed',
+                        'error': str(e)
+                    })
+            
+            all_results[module_name] = module_results
+        
+        # Summary
+        total = sum(len(v) for v in all_results.values())
+        passed = sum(1 for results in all_results.values() for r in results if r.get('status') == 'passed')
+        failed = sum(1 for results in all_results.values() for r in results if r.get('status') == 'failed')
+        skipped = sum(1 for results in all_results.values() for r in results if r.get('status') == 'skipped')
+        
+        logger.info(f"\n{'='*80}")
+        logger.info(f"Scaffold Execution Summary:")
+        logger.info(f"  Total: {total}, Passed: {passed}, Failed: {failed}, Skipped: {skipped}")
+        logger.info(f"{'='*80}\n")
+        
+        return {
+            'total_tests': total,
+            'passed': passed,
+            'failed': failed,
+            'skipped': skipped,
+            'results': all_results
+        }
+    
+    except Exception as e:
+        logger.error(f"Scaffold CSV execution failed: {e}")
+        logger.error(traceback.format_exc())
+        return {'error': str(e)}
+

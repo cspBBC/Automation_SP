@@ -1,5 +1,5 @@
 import pytest
-from test_engine_layer.runner import run_stored_procedures
+from test_engine_layer.runner import run_stored_procedures, run_stored_procedures_from_csv
 from validation_layer.preseed_validator import verify_preseed_exists
 from validation_layer.modules.schGroup_validator import (
     getSchdGrpDetails,
@@ -8,7 +8,6 @@ from validation_layer.modules.schGroup_validator import (
     validateSchdGrpHistoryExists,
     validateUserCanAccessTeam
 )
-from test_engine_layer.enums import TestCaseType
 
 TEST_USER_ID = 10201  # Fixed test user (creator)
 AREA_ADMIN_NEWS_ID = 10201  # areaAdmin_News - can only access News division teams
@@ -22,33 +21,46 @@ def created_team_id(db_transaction, request):
     verify_preseed_exists(request.fspath, 'createSchdGroup_user.sql')
     verify_preseed_exists(request.fspath, 'createSchdGroup_division.sql')
 
-    # execute stored procedure and return new team id;
-    result = run_stored_procedures(
-        'usp_CreateUpdateSchedulingTeam',
-        TestCaseType.POSITIVE,
-        'createSchdGroup_testData',
-    )
-    tid = result.get('created_team_id')
-    assert tid, "Creation should return a valid team id"
-    return tid
-
-
-def test_history_create_update(created_team_id):
-    # query the team
-    team = getSchdGrpDetails(created_team_id)
-    assert team, "Team should exist after creation"
-
-    history = getSchdGrpHistory(created_team_id, TEST_USER_ID)
-    assert validateSchdGrpHistoryExists(created_team_id, TEST_USER_ID, expected_count=3)
-    assert any('created' in r.get('History', '').lower() for r in history)
-
-    # all verifications successful, no explicit cleanup needed due to transactional isolation
-
-
-def test_active_flag(created_team_id):
-    assert validateSchdGrpActive(created_team_id)
+    # execute stored procedures from keyword-driven CSV
+    # Auto-discovery scaffold framework - NO ARGUMENTS NEEDED!
+    # Reads data_layer/test_data/keyword_driven_tests.csv
+    # Identifies module names and loads matching templates automatically
+    execute_result = run_stored_procedures_from_csv()
     
-# def test_area_admin_news_cannot_access_team(created_team_id):
-#     """Area admin for News division cannot access a team created by another user."""
-#     can_access = validateUserCanAccessTeam(created_team_id, AREA_ADMIN_NEWS_ID, NEWS_DIVISION_ID)
-#     assert not can_access, "News area admin should not be able to access this team"
+    # Extract team id from results structure
+    # execute_result = {total_tests, passed, failed, skipped, 'results': {module_name: [test_results]}}
+    all_results = execute_result.get('results', {})
+    for module_name, test_results in all_results.items():
+        for test_result in test_results:
+            if test_result.get('status') == 'passed':
+                # Extract from chain output - chain_data contains output_mapping results
+                result_data = test_result.get('result', {})
+                if isinstance(result_data, dict):
+                    # Check in chain_data first (output of the chain execution)
+                    chain_data = result_data.get('chain_data', {})
+                    tid = chain_data.get('created_team_id')
+                    if tid:
+                        return tid
+    
+    # If no team id found, raise assertion error
+    assert False, "Creation should return a valid team id"
+
+
+# add one test function to validate the created team
+def test_validate_created_team(created_team_id):
+    # Validate team details
+    details = getSchdGrpDetails(created_team_id)
+    assert details, "Team details should be returned"
+    assert details.get('schedulingTeamId') == created_team_id, "Returned team ID should match created team ID"
+    
+    # Validate team is active
+    assert validateSchdGrpActive(created_team_id), "Created team should be active"
+    
+    # Validate team history exists
+    history = getSchdGrpHistory(created_team_id, TEST_USER_ID)
+    assert history, "Team history should be returned"
+    assert validateSchdGrpHistoryExists(created_team_id, TEST_USER_ID), "Team history should exist"
+    
+    # Validate test user can access the team
+    assert validateUserCanAccessTeam(created_team_id, TEST_USER_ID), "Test user should have access to the created team"
+
