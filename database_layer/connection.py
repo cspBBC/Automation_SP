@@ -1,19 +1,23 @@
-import pyodbc
-import threading
-from config.config import DatabaseConfig
+"""Connection Manager - Manages database connections."""
 
-# Thread-local storage for test-level transactions
-_test_transaction = threading.local()
+import pyodbc
+import logging
+from config.config import DatabaseConfig
+from database_layer.transaction_manager import get_test_transaction
+
+logger = logging.getLogger(__name__)
+
 
 class DBSession:
+    """Context manager for database sessions."""
+    
     def __enter__(self):
         DatabaseConfig.validate()
         
         # Check if we're in a test transaction context
-        # This ensures all queries see the same transaction.
-        if hasattr(_test_transaction, 'conn') and _test_transaction.conn:
-            # Use the existing test transaction connection
-            self.conn = _test_transaction.conn
+        test_transaction = get_test_transaction()
+        if test_transaction:
+            self.conn = test_transaction
             self.cursor = self.conn.cursor()
             self._is_test_txn = True
         else:
@@ -27,6 +31,7 @@ class DBSession:
             )
             self.cursor = self.conn.cursor()
             self._is_test_txn = False
+        
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
@@ -43,32 +48,19 @@ class DBSession:
         # If this is a test transaction, don't close or commit - let the fixture handle it
 
     def execute_query(self, query, params=None):
+        """Execute a query and return all results."""
         self.cursor.execute(query, params or [])
         return self.cursor.fetchall()
     
     def get_output_params(self):
-        """Get output parameters from the last executed query.
-        
-        pyodbc stores output parameters in cursor.output_params as a dictionary.
-        """
+        """Get output parameters from the last executed query."""
         try:
             if hasattr(self.cursor, 'output_params'):
                 return self.cursor.output_params
             return {}
         except Exception as e:
-            import logging
-            logging.debug(f"Could not retrieve output parameters: {e}")
+            logger.debug(f"Could not retrieve output parameters: {e}")
             return {}
-
-
-def set_test_transaction(conn):
-    """Set the test transaction connection (called by pytest fixture)."""
-    _test_transaction.conn = conn
-
-
-def clear_test_transaction():
-    """Clear the test transaction connection (called by pytest fixture)."""
-    _test_transaction.conn = None
 
 
 def get_connection():

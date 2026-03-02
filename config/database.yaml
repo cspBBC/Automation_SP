@@ -1,0 +1,21 @@
+# Database Configuration
+# This file contains database connection settings for the test framework
+
+database:
+  # Use environment variables for sensitive data
+  host: ${DB_HOST}
+  name: ${DB_NAME}
+  user: ${DB_USER}
+  password: ${DB_PASSWORD}
+  
+  # Connection settings
+  timeout: 30
+  connection_pool_size: 10
+  
+  # Transaction settings
+  isolation_level: READ_COMMITTED
+  
+  # Advanced settings
+  trust_certificate: false
+  encrypt_connection: true
+  driver: ODBC Driver 17 for SQL Server

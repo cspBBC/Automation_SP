@@ -20,7 +20,8 @@ def db_transaction(request):
     All DBSession instances used during the test will use the same
     transaction context, ensuring complete isolation.
     """
-    from core.db.connection import get_connection, set_test_transaction, clear_test_transaction
+    from database_layer.connection import get_connection
+    from database_layer.transaction_manager import set_test_transaction, clear_test_transaction
     
     # Get a connection for this test
     conn = get_connection()

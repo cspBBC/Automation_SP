@@ -1,16 +1,11 @@
-from ..helpers.generic_query_helpers import execute_query
-from typing import Dict, Any
+"""Scheduling Group Validators - Validators for scheduling team tests."""
 
+from validation_layer.generic_validators import execute_query
+from typing import Dict, Any, List
 
-# scenario-specific wrappers -------------------------------------------------
 
 def getSchdGrpDetails(scheduling_team_id: int) -> Dict[str, Any]:
-    """Fetch the scheduling-team row using hard‑coded SQL.
-
-    The query resides here so that test modules only depend on a single
-    function.  ``generic_query_helpers`` merely runs whatever SQL it is given
-    and returns the result as a list of dicts.
-    """
+    """Fetch the scheduling-team row using hard‑coded SQL."""
     print(f"\n[getSchdGrpDetails] Querying team details...")
     sql = """
         SELECT *
@@ -27,12 +22,8 @@ def getSchdGrpDetails(scheduling_team_id: int) -> Dict[str, Any]:
     return results[0] if results else {}
 
 
-
 def validateSchdGrpActive(scheduling_team_id: int) -> bool:
-    """Return ``True`` if the scheduling team is active.
-
-    Uses hard‑coded SQL to check the isActive column for the given team ID.
-    """
+    """Return ``True`` if the scheduling team is active."""
     print(f"\n[validateSchdGrpActive] Checking active flag...")
     sql = """
         SELECT isActive
@@ -51,19 +42,8 @@ def validateSchdGrpActive(scheduling_team_id: int) -> bool:
     return False
 
 
-def getSchdGrpHistory(scheduling_team_id: int, user_id: int) -> list:
-    """Fetch history records for a scheduling team.
-
-    Returns all audit trail records (create, update, delete actions) for the given team,
-    ordered by most recent first (descending historyid).
-
-    Args:
-        scheduling_team_id: The team ID to fetch history for
-        user_id: The user ID who performed the action
-
-    Returns:
-        List of history dictionaries, or empty list if none found
-    """
+def getSchdGrpHistory(scheduling_team_id: int, user_id: int) -> List[Dict[str, Any]]:
+    """Fetch history records for a scheduling team."""
     print(f"\n[getSchdGrpHistory] Querying history records...")
     sql = """
         SELECT *
@@ -75,10 +55,8 @@ def getSchdGrpHistory(scheduling_team_id: int, user_id: int) -> list:
     results = execute_query(sql, [user_id, scheduling_team_id])
     print(f"  Result count: {len(results)}")
     if results:
-        # show the keys we received so callers can understand column names
         print(f"  Row keys: {list(results[0].keys())}")
     for idx, row in enumerate(results):
-        # case-insensitive access for columns that may vary in casing
         hid = row.get('HistoryID') if 'HistoryID' in row else row.get('historyid')
         datetime_val = row.get('DateTime') if 'DateTime' in row else row.get('datetime')
         history_text = row.get('History') if 'History' in row else row.get('history', '')
@@ -87,18 +65,7 @@ def getSchdGrpHistory(scheduling_team_id: int, user_id: int) -> list:
 
 
 def validateSchdGrpHistoryExists(scheduling_team_id: int, user_id: int, expected_count: int = None) -> bool:
-    """Validate that history records exist for a scheduling team.
-
-    Can optionally verify a specific count of records.
-
-    Args:
-        scheduling_team_id: The team ID
-        user_id: The user who performed the action
-        expected_count: Optional - expected number of history records
-
-    Returns:
-        True if records exist (and count matches if provided), False otherwise
-    """
+    """Validate that history records exist for a scheduling team."""
     print(f"\n[validateSchdGrpHistoryExists] Validating history count...")
     history = getSchdGrpHistory(scheduling_team_id, user_id)
     
@@ -117,16 +84,7 @@ def validateSchdGrpHistoryExists(scheduling_team_id: int, user_id: int, expected
 
 
 def validateSchdGrpHistoryAction(scheduling_team_id: int, user_id: int, expected_action: str) -> bool:
-    """Validate that the most recent history record has a specific action.
-
-    Args:
-        scheduling_team_id: The team ID
-        user_id: The user who performed the action
-        expected_action: The expected action (e.g., 'Created', 'Record updated', 'DELETE')
-
-    Returns:
-        True if latest action matches, False otherwise
-    """
+    """Validate that the most recent history record has a specific action."""
     print(f"\n[validateSchdGrpHistoryAction] Validating history action...")
     history = getSchdGrpHistory(scheduling_team_id, user_id)
     
@@ -134,7 +92,6 @@ def validateSchdGrpHistoryAction(scheduling_team_id: int, user_id: int, expected
         print(f"  Result: FAILED - No history records found")
         return False
     
-    # Check if the History text field contains the expected action (case-insensitive key)
     latest_row = history[0]
     latest_history_text = latest_row.get('History') if 'History' in latest_row else latest_row.get('history', '')
     latest_history_text = latest_history_text.lower()
@@ -145,8 +102,8 @@ def validateSchdGrpHistoryAction(scheduling_team_id: int, user_id: int, expected
     print(f"  Result: {'PASS' if match else 'FAIL'}")
     return match
 
-# create  method for select * from SchedulingGroupsTeamsLinks where schedulingteamid = 368
-def getSchdGrpTeamLinks(scheduling_team_id: int) -> Dict[str, Any]:
+
+def getSchdGrpTeamLinks(scheduling_team_id: int) -> List[Dict[str, Any]]:
     """Fetch the scheduling team links using hard‑coded SQL."""
     print(f"\n[getSchdGrpTeamLinks] Querying team links...")
     sql = """
@@ -162,4 +119,32 @@ def getSchdGrpTeamLinks(scheduling_team_id: int) -> Dict[str, Any]:
     return results if results else []
 
 
-
+def validateUserCanAccessTeam(scheduling_team_id: int, user_id: int, user_division_id: int = None) -> bool:
+    """Validate that a user has permission to access a scheduling team."""
+    print(f"\n[validateUserCanAccessTeam] Checking access for user {user_id} to team {scheduling_team_id}...")
+    if user_division_id:
+        print(f"  User division restriction: {user_division_id}")
+    
+    sql = """
+        SELECT t.SchedulingTeamID
+        FROM SchedulingTeams t
+        LEFT JOIN Divisions d ON d.DivisionID = t.DivisionID
+        WHERE t.SchedulingTeamID = ?
+          AND (
+              t.CreatedBy = ?
+              OR EXISTS (
+                  SELECT 1
+                  FROM UserRoles r
+                  INNER JOIN Divisions d2 ON d2.DivisionID = r.UR_DivisionId
+                  WHERE r.UR_UserID = ?
+                    AND r.UR_EndDate >= CAST(GETDATE() AS DATE)
+                    AND (r.UR_RoleID = 1 OR d2.DivisionID = t.DivisionID)
+              )
+          )
+    """
+    print(f"  Params: [team_id={scheduling_team_id}, user_id={user_id}]")
+    results = execute_query(sql, [scheduling_team_id, user_id, user_id])
+    print(f"  Result count: {len(results)}")
+    can_access = len(results) > 0
+    print(f"  Result: {'CAN ACCESS' if can_access else 'CANNOT ACCESS'}")
+    return can_access

@@ -1,3 +1,5 @@
 pyodbc
 python-dotenv
 pytest
+PyYAML
+openpyxl

@@ -1,15 +1,15 @@
 import pytest
 import os, json
 
-from tests.helpers.sp_test_utils import run_stored_procedures, load_test_inputs
-from tests.helpers.preseed_utils import verify_preseed_exists
-from tests.modules.schGroup_output_validator import (
+from test_engine_layer.runner import run_stored_procedures, load_test_inputs
+from validation_layer.preseed_validator import verify_preseed_exists
+from validation_layer.modules.schGroup_validator import (
     getSchdGrpDetails,
     validateSchdGrpActive,
     getSchdGrpHistory,
     validateSchdGrpHistoryExists,
 )
-from tests.enums.test_enums import TestCaseType
+from test_engine_layer.enums import TestCaseType
 
 TEST_USER_ID = 10201
 
