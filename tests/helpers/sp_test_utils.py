@@ -38,18 +38,10 @@ class Colors:
 
 
 def _setup_logging():
-    """Setup logging to both console and timestamped file.
+    """Setup console-only logging.
     
-    Creates output folder if needed and logs to file with datetime stamp.
-    Returns the logger and file handler.
+    Returns the logger (no file handler).
     """
-    # Create output folder if it doesn't exist
-    output_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'output')
-    os.makedirs(output_dir, exist_ok=True)
-    
-    # Use fixed log filename (overwrites previous execution)
-    log_file = os.path.join(output_dir, 'test_run.log')
-    
     # Setup logger
     logger = logging.getLogger('sp_validation')
     logger.setLevel(logging.DEBUG)
@@ -58,23 +50,17 @@ def _setup_logging():
     for handler in logger.handlers[:]:
         logger.removeHandler(handler)
     
-    # File handler with UTF-8 encoding
-    file_handler = logging.FileHandler(log_file, mode='w', encoding='utf-8')
-    file_handler.setLevel(logging.DEBUG)
-    
-    # Console handler with UTF-8 encoding
+    # Console handler with UTF-8 encoding only
     console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setLevel(logging.DEBUG)
     
     # Formatter
     formatter = logging.Formatter('%(message)s')
-    file_handler.setFormatter(formatter)
     console_handler.setFormatter(formatter)
     
-    logger.addHandler(file_handler)
     logger.addHandler(console_handler)
     
-    return logger, log_file
+    return logger
 
 
 def _log(message, logger=None):
@@ -214,13 +200,12 @@ def run_stored_procedures(sp_name, case_type=None, test_inputs=None):
         test_stored_procedures('usp_GetUsers', TestCaseType.POSITIVE, 
                              test_inputs='shekjar')
     """
-    # Setup logging to console and file
-    logger, log_file = _setup_logging()
+    # Setup logging to console only
+    logger = _setup_logging()
     logger.info(f"\n{'='*90}")
     logger.info(f"Test Execution Started: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     logger.info(f"SP Name: {sp_name}")
     logger.info(f"Test Inputs: {test_inputs}")
-    logger.info(f"Log File: {log_file}")
     logger.info(f"{'='*90}\n")
     
     test_data = load_test_inputs(test_inputs)
@@ -377,7 +362,6 @@ def run_stored_procedures(sp_name, case_type=None, test_inputs=None):
         'passed_count': passed_count,
         'failed_count': failed_count,
         'test_results': test_results,
-        'log_file': log_file,
         'total_tests': len(test_results)
     }
     
@@ -532,6 +516,7 @@ def _execute_chain_test(chain_config, context=None, logger=None):
     try:
         # Execute chain with formatted version
         executor = SPChainExecutor(connection)
+        executor.set_logger(_log_msg)  # Pass logger callback for detailed output
         result = executor.execute_chain(formatted_chain)
         
         if result['success']:

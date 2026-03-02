@@ -1,6 +1,6 @@
 import pytest
-
 from tests.helpers.sp_test_utils import run_stored_procedures
+from tests.helpers.preseed_utils import verify_preseed_exists
 from tests.modules.schGroup_output_validator import (
     getSchdGrpDetails,
     validateSchdGrpActive,
@@ -15,7 +15,7 @@ TEST_USER_ID = 10201  # Fixed test user
 def created_team_id(db_transaction, request):
     # ensure required reference rows exist (user, division, etc.)
     # the SQL files contain SELECT checks only; they should not perform inserts
-    from tests.helpers.preseed_utils import verify_preseed_exists
+   
     verify_preseed_exists(request.fspath, 'createSchdGroup_user.sql')
     verify_preseed_exists(request.fspath, 'createSchdGroup_division.sql')
 
@@ -30,7 +30,7 @@ def created_team_id(db_transaction, request):
     return tid
 
 
-def test_history_and_create(created_team_id):
+def test_history_create_update(created_team_id):
     # query the team
     team = getSchdGrpDetails(created_team_id)
     assert team, "Team should exist after creation"

@@ -18,6 +18,17 @@ class SPChainExecutor:
         self.execution_results = {}
         self.chain_data = {}
         self.base_parameters = {}
+        self.logger_callback = None
+    
+    def set_logger(self, callback):
+        """Set a callback for logging detailed output to stdout."""
+        self.logger_callback = callback
+    
+    def _log(self, msg):
+        """Log a message to both internal logger and callback (stdout)."""
+        logger.debug(msg)
+        if self.logger_callback:
+            self.logger_callback(msg)
     
     def execute_chain(self, chain_config: List[Dict[str, Any]]) -> Dict[str, Any]:
         """
@@ -32,8 +43,8 @@ class SPChainExecutor:
                 step_num = step_config.get("step", idx + 1)
                 sp_name = step_config["sp_name"]
                 
-                logger.info(f"\n{'='*80}")
-                logger.info(f"[CHAIN STEP {step_num}] Executing {sp_name}...")
+                self._log(f"\n{'='*80}")
+                self._log(f"[CHAIN STEP {step_num}] Executing {sp_name}...")
                 
                 # Build parameters with inheritance
                 params = self._build_parameters_with_inheritance(
@@ -41,8 +52,8 @@ class SPChainExecutor:
                     step_num
                 )
                 
-                logger.info(f"Final parameters: {len(params)} total")
-                logger.info(f"  Parameter names: {sorted(params.keys())}")
+                self._log(f"Final parameters: {len(params)} total")
+                self._log(f"  Parameter names: {sorted(params.keys())}")
                 logger.debug(f"  All params: {params}")
                 
                 # Execute SP
@@ -53,7 +64,7 @@ class SPChainExecutor:
                 step_status, step_message = self._check_step_status(result, step_num)
                 if not step_status:
                     # Step failed - log error and stop chain
-                    logger.error(f"[STEP {step_num}] FAILED: {step_message}")
+                    self._log(f"[STEP {step_num}] FAILED: {step_message}")
                     return {
                         "success": False,
                         "error": step_message,
@@ -62,20 +73,20 @@ class SPChainExecutor:
                         "chain_data": self.chain_data
                     }
                 
-                logger.info(f"[STEP {step_num}] Status: {step_message}")
+                self._log(f"[STEP {step_num}] Status: {step_message}")
                 
                 # Store Step 1 as base for future inheritance
                 if step_num == 1:
                     self.base_parameters = copy.deepcopy(params)
-                    logger.info(f"Stored base parameters from Step 1: {len(params)} params")
+                    self._log(f"Stored base parameters from Step 1: {len(params)} params")
                 
                 # Extract outputs for next steps
                 if "output_mapping" in step_config:
-                    logger.info(f"Extracting outputs with mapping: {step_config['output_mapping']}")
+                    self._log(f"Extracting outputs with mapping: {step_config['output_mapping']}")
                     self._extract_outputs(result, step_config["output_mapping"])
-                    logger.info(f"Chain data after extraction: {self.chain_data}")
+                    self._log(f"Chain data after extraction: {self.chain_data}")
                 
-                logger.info(f"[STEP {step_num}] Completed successfully")
+                self._log(f"[STEP {step_num}] Completed successfully")
             
             return {
                 "success": True,
@@ -84,9 +95,9 @@ class SPChainExecutor:
             }
         
         except Exception as e:
-            logger.error(f"Chain execution failed: {e}")
+            self._log(f"Chain execution failed: {e}")
             import traceback
-            traceback.print_exc()
+            self._log(traceback.format_exc())
             return {
                 "success": False,
                 "error": str(e),
