@@ -1,7 +1,7 @@
 import pytest
 from test_engine_layer.runner import run_stored_procedures, run_stored_procedures_from_csv
 from validation_layer.preseed_validator import verify_preseed_exists
-from validation_layer.modules.schGroup_validator import (
+from validation_layer.schGroup_validator import (
     getSchdGrpDetails,
     validateSchdGrpActive,
     getSchdGrpHistory,

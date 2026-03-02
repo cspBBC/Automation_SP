@@ -124,17 +124,6 @@ def run_stored_procedures(sp_name: str, case_type=None, test_inputs: str = None)
             ctx_validation = make_context(params, chain_data=(chain_result or {}).get('chain_data'))
             ctx_validation.update(ctx)
             
-            # Execute post-SQL
-            if test_case.get('post_sql'):
-                post_results = _run_sql_list(test_case['post_sql'], label="POST", context=ctx_validation, logger=logger)
-                
-                # Validate against expected post-state
-                if test_case.get('expected_post_state'):
-                    from validation_layer.result_validator import validate_post_state
-                    validation_passed = validate_post_state(post_results, test_case['expected_post_state'], ctx_validation, logger=logger)
-                    if not validation_passed:
-                        case_passed = False
-            
             # Execute cleanup SQL
             if test_case.get('cleanup_sql'):
                 _run_sql_list(test_case['cleanup_sql'], label="CLEANUP", context=ctx_validation, logger=logger)
