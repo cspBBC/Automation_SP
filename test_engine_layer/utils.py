@@ -35,16 +35,20 @@ class Colors:
 
 
 def setup_logging():
-    """Setup console-only logging.
+    """Setup console logging while preserving any file handlers.
     
-    Returns the logger (no file handler).
+    Removes console handlers to avoid duplicates but preserves file handlers
+    that may have been added by test fixtures.
+    
+    Returns the logger.
     """
     logger = logging.getLogger('sp_validation')
     logger.setLevel(logging.DEBUG)
     
-    # Remove existing handlers to avoid duplicates
+    # Remove existing console handlers to avoid duplicates, but preserve file handlers
     for handler in logger.handlers[:]:
-        logger.removeHandler(handler)
+        if not isinstance(handler, logging.FileHandler):
+            logger.removeHandler(handler)
     
     # Console handler with UTF-8 encoding
     console_handler = logging.StreamHandler(sys.stdout)

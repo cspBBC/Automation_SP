@@ -2,12 +2,11 @@
 """
 Standalone script to execute keyword-driven CSV tests.
 Users can update keyword_driven_tests.csv and run this script to execute all tests.
-Each test case gets its own log file that updates on re-execution.
+Comprehensive logs captured in pytest execution.log when run via pytest.
 """
 
 import sys
 import os
-import json
 import logging
 from datetime import datetime
 
@@ -19,28 +18,18 @@ from test_engine_layer.utils import setup_logging
 from database_layer.connection import get_connection
 from database_layer.transaction_manager import set_test_transaction, clear_test_transaction
 
-def create_test_case_directory(test_case_id):
-    """Create output directory for a specific test case."""
-    output_dir = os.path.join('output', test_case_id)
+def setup_execution_logging():
+    """Setup file logging to execution.log in output folder."""
+    output_dir = os.path.join('output', 'csv_execution')
     os.makedirs(output_dir, exist_ok=True)
-    return output_dir
-
-def setup_file_logging_for_test(output_dir, test_case_id):
-    """Configure file logging for a specific test case."""
+    
     log_file = os.path.join(output_dir, 'execution.log')
     
-    # Get root logger and set level
-    logger = logging.getLogger()
-    logger.setLevel(logging.DEBUG)  # Ensure root logger captures all levels
+    # Get root logger
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.DEBUG)
     
-    # Remove previous file handlers for this logger
-    for handler in logger.handlers[:]:
-        if isinstance(handler, logging.FileHandler):
-            handler.flush()  # Flush before closing
-            handler.close()
-            logger.removeHandler(handler)
-    
-    # Create file handler (overwrites on re-execution)
+    # Create file handler
     file_handler = logging.FileHandler(log_file, mode='w', encoding='utf-8')
     file_handler.setLevel(logging.DEBUG)
     
@@ -51,49 +40,22 @@ def setup_file_logging_for_test(output_dir, test_case_id):
     )
     file_handler.setFormatter(formatter)
     
-    # Add handler to logger
-    logger.addHandler(file_handler)
+    # Add handler to root logger
+    root_logger.addHandler(file_handler)
     
-    return log_file, file_handler  # Return handler so we can flush later
-
-def save_test_case_details(output_dir, test_case_id, test_result):
-    """Save detailed execution results for a test case."""
-    details_file = os.path.join(output_dir, 'execution_details.json')
-    
-    team_id = None
-    status = test_result.get('status', 'unknown')
-    
-    if status == 'passed':
-        result_data = test_result.get('result', {})
-        if isinstance(result_data, dict):
-            chain_data = result_data.get('chain_data', {})
-            team_id = chain_data.get('created_team_id')
-    
-    details = {
-        'test_case_id': test_case_id,
-        'timestamp': datetime.now().isoformat(),
-        'status': status,
-        'team_id': team_id,
-        'error': test_result.get('error') if status == 'failed' else None,
-        'full_result': test_result
-    }
-    
-    # Overwrite on re-execution
-    with open(details_file, 'w', encoding='utf-8') as f:
-        json.dump(details, f, indent=2, default=str)
-    
-    return details_file, team_id
+    return log_file, file_handler
 
 def main():
     """Execute all keyword-driven CSV tests within a transaction that rolls back."""
+    log_file, file_handler = setup_execution_logging()
     logger = logging.getLogger(__name__)
     
     print("\n" + "="*90)
     print("Keyword-Driven CSV Test Execution (with Savepoint-Based Rollback)")
     print("="*90)
-    print("Creating individual test case folders in output/")
     print("Reading from: data_layer/test_data/keyword_driven_tests.csv")
     print("Auto-discovering module folders and templates...")
+    print("Logging: Comprehensive logs saved to execution.log")
     print("** All changes (including SP internal COMMITs) will be ROLLED BACK **\n")
     
     # Create a connection and start a transaction context
@@ -138,72 +100,38 @@ def main():
                     test_case_id = test_result.get('case_id', 'unknown')
                     status = test_result.get('status', 'unknown')
                     
-                    # Create directory for this test case
-                    output_dir = create_test_case_directory(test_case_id)
-                    
-                    # Setup logging for this test case
-                    log_file, file_handler = setup_file_logging_for_test(output_dir, test_case_id)
-                    
-                    # Get logger and log test details
-                    test_logger = logging.getLogger('test_case')
-                    test_logger.info(f"\n{'='*80}")
-                    test_logger.info(f"Test Case: {test_case_id}")
-                    test_logger.info(f"Module: {module_name}")
-                    test_logger.info(f"Status: {status}")
-                    test_logger.info(f"Execution Time: {datetime.now().isoformat()}")
-                    test_logger.info(f"{'='*80}\n")
+                    # Print to console only (detailed logging handled by pytest)
+                    print(f"Test Case: {test_case_id}")
+                    print(f"Status: {status}")
                     
                     if status == 'passed':
                         result_data = test_result.get('result', {})
                         if isinstance(result_data, dict):
                             chain_data = result_data.get('chain_data', {})
                             team_id = chain_data.get('created_team_id')
-                            test_logger.info(f"✅ PASSED")
-                            test_logger.info(f"Created Team ID: {team_id}")
+                            print(f"✅ PASSED - Team ID: {team_id}\n")
                             test_case_summary.append({
                                 'case_id': test_case_id,
                                 'status': 'PASSED',
-                                'team_id': team_id,
-                                'output_dir': output_dir
+                                'team_id': team_id
                             })
                     elif status == 'failed':
                         error = test_result.get('error', 'Unknown error')
-                        test_logger.error(f"❌ FAILED")
-                        test_logger.error(f"Error: {error}")
+                        print(f"❌ FAILED - Error: {error}\n")
                         test_case_summary.append({
                             'case_id': test_case_id,
                             'status': 'FAILED',
-                            'error': error,
-                            'output_dir': output_dir
+                            'error': error
                         })
                     else:
-                        test_logger.warning(f"⏭️  SKIPPED")
+                        print(f"⏭️  SKIPPED\n")
                         test_case_summary.append({
                             'case_id': test_case_id,
-                            'status': 'SKIPPED',
-                            'output_dir': output_dir
+                            'status': 'SKIPPED'
                         })
-                    
-                    # Save details
-                    details_file, team_id = save_test_case_details(output_dir, test_case_id, test_result)
-                    test_logger.info(f"\nLogs saved to: {log_file}")
-                    test_logger.info(f"Details saved to: {details_file}\n")
-                    
-                    # Flush the file handler to ensure logs are written to disk
-                    file_handler.flush()
-                    
-                    # Print to console
-                    print(f"Test Case: {test_case_id}")
-                    print(f"Status: {status}")
-                    if status == 'passed' and team_id:
-                        print(f"Team ID: {team_id}")
-                    elif status == 'failed':
-                        print(f"Error: {test_result.get('error', 'Unknown')}")
-                    print(f"Output: {output_dir}")
-                    print()
         
         # Display overall summary
-        print("\n" + "="*90)
+        print("="*90)
         print("Overall Execution Summary")
         print("="*90)
         print(f"Total Tests:  {results['total_tests']}")
@@ -211,13 +139,8 @@ def main():
         print(f"Failed:       {results['failed']}")
         print(f"Skipped:      {results['skipped']}")
         print("="*90)
-        print("** All changes rolled back - database state unchanged **\n")
-        
-        print("Individual Test Logs:")
-        for summary in test_case_summary:
-            status_symbol = "✅" if summary['status'] == 'PASSED' else "❌" if summary['status'] == 'FAILED' else "⏭️"
-            print(f"  {status_symbol} {summary['case_id']}: {summary['output_dir']}")
-        print()
+        print("** All changes rolled back - database state unchanged **")
+        print(f"** Comprehensive logs: {os.path.abspath(log_file)} **\n")
         
         # Return exit code based on failures
         if results['failed'] > 0:
@@ -228,9 +151,9 @@ def main():
             return 0
             
     except Exception as e:
-        logger = logging.getLogger(__name__)
-        logger.error(f"\n❌ Execution failed: {e}")
-        logger.exception("Traceback:")
+        if 'logger' in locals():
+            logger.error(f"\n❌ Execution failed: {e}")
+            logger.exception("Traceback:")
         print(f"\n❌ Execution failed: {e}")
         
         # Attempt to rollback on error
@@ -246,11 +169,10 @@ def main():
         return 1
     
     finally:
-        # Flush all loggers to ensure logs are written to disk
-        root_logger = logging.getLogger()
-        for handler in root_logger.handlers:
-            if isinstance(handler, logging.FileHandler):
-                handler.flush()
+        # Flush and close file handler
+        if file_handler:
+            file_handler.flush()
+            file_handler.close()
         
         # Always rollback transaction and cleanup, regardless of success or failure
         if conn:

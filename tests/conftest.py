@@ -1,6 +1,7 @@
 import os
 import datetime
 import pytest
+import logging
 
 
 def pytest_addoption(parser):
@@ -52,6 +53,39 @@ def output_dir(request):
     dir_path = os.path.join(base, node_path)
     os.makedirs(dir_path, exist_ok=True)
     return dir_path
+
+
+@pytest.fixture(autouse=True)
+def setup_execution_logging(request, output_dir):
+    """Setup file logging to execution.log for all test output.
+    
+    Captures all logger output and writes it to execution.log in the output 
+    directory. This creates a complete transcript of all test execution steps.
+    """
+    # Get root logger and set to DEBUG to capture everything
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.DEBUG)
+    
+    # Create file handler for execution.log
+    log_file = os.path.join(output_dir, "execution.log")
+    file_handler = logging.FileHandler(log_file, mode='w', encoding='utf-8')
+    file_handler.setLevel(logging.DEBUG)
+    
+    # Create formatter that includes timestamp and level
+    formatter = logging.Formatter(
+        '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    )
+    file_handler.setFormatter(formatter)
+    
+    # Add file handler to root logger
+    root_logger.addHandler(file_handler)
+    
+    yield
+    
+    # Cleanup
+    file_handler.close()
+    root_logger.removeHandler(file_handler)
 
 
 @pytest.fixture(autouse=True)

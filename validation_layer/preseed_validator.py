@@ -29,19 +29,29 @@ def verify_preseed_exists(module_path: str, filename: str) -> None:
     full = project_root / "data_layer" / "preseed_data" / filename
     
     if not os.path.isfile(full):
+        logger.info(f"Preseed Reference File: {os.path.abspath(full)}")
+        logger.info(f"File exists: False (skipping)")
         return
+
+    logger.info(f"Preseed Reference File: {os.path.abspath(full)}")
+    logger.info(f"File exists: True")
+    logger.info(f"File size: {os.path.getsize(full)} bytes")
 
     sql = _read_sql(full)
     statements = [stmt.strip() for stmt in sql.split(";") if stmt.strip()]
     if not statements:
         return
 
+    logger.info(f"Executing {len(statements)} statement(s) from {filename}...")
+    
     with get_connection() as conn:
         cur = conn.cursor()
-        for stmt in statements:
+        for stmt_idx, stmt in enumerate(statements, 1):
+            logger.info(f"  Preseed statement {stmt_idx}/{len(statements)}: {stmt[:80]}...")
             cur.execute(stmt)
             rows = cur.fetchall()
             if not rows:
                 raise AssertionError(
                     f"Precondition failed: '{filename}' query returned no rows:\n{stmt}"
                 )
+            logger.info(f"  ✓ Returned {len(rows)} row(s)")

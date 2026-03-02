@@ -14,7 +14,6 @@ from database_layer.chain_executor import SPChainExecutor
 from test_engine_layer.utils import Colors, setup_logging
 from test_engine_layer.parameter_manager import format_dict, make_context
 from test_engine_layer.builder import build_test_context, get_column_names
-from test_engine_layer.enums import TestCaseType
 
 logger = logging.getLogger(__name__)
 
@@ -411,7 +410,9 @@ def run_stored_procedures_from_csv(filter_executed: bool = True) -> Dict[str, An
             logger.error(f"CSV not found: {csv_path}")
             return {'error': f'CSV file not found: {csv_path}'}
         
-        logger.info(f"CSV File: {csv_path}")
+        logger.info(f"CSV Reference File: {os.path.abspath(csv_path)}")
+        logger.info(f"File exists: True")
+        logger.info(f"File size: {os.path.getsize(csv_path)} bytes\n")
         
         # Step 2: Load CSV to identify unique modules
         # Pass just the filename - loader adds data_layer/test_data/ prefix automatically
@@ -448,7 +449,9 @@ def run_stored_procedures_from_csv(filter_executed: bool = True) -> Dict[str, An
                 continue
             
             logger.info(f"Module: {module_name}")
-            logger.info(f"  Template: {template_file}")
+            logger.info(f"  Reference Template File: {os.path.abspath(template_file)}")
+            logger.info(f"  File exists: True")
+            logger.info(f"  File size: {os.path.getsize(template_file)} bytes")
             
             # Step 4: Transform CSV data using discovered template
             test_data_for_module = TemplateTransformer.load_and_transform(

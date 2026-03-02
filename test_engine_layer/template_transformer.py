@@ -2,6 +2,7 @@
 
 import json
 import logging
+import os
 from typing import Dict, List, Any
 from data_loader_factory import DataLoaderFactory
 
@@ -35,8 +36,10 @@ class TemplateTransformer:
         if template_file is None:
             template_file = 'data_layer/test_data/generic_template.json'
         
-        logger.info(f"Loading CSV from: {csv_file}")
-        logger.info(f"Using template from: {template_file}")
+        logger.info(f"CSV Reference File: {os.path.abspath(csv_file) if os.path.exists(csv_file) else csv_file}")
+        logger.info(f"Template Reference File: {os.path.abspath(template_file) if os.path.exists(template_file) else template_file}")
+        if os.path.exists(template_file):
+            logger.info(f"  File size: {os.path.getsize(template_file)} bytes")
         if module_filter:
             logger.info(f"Filtering to module: {module_filter}")
         
@@ -47,7 +50,7 @@ class TemplateTransformer:
         with open(template_file, 'r', encoding='utf-8') as f:
             template = json.load(f)
         
-        logger.info(f"Loaded template with {len(template)} modules")
+        logger.info(f"Loaded template with {len(template)} modules\n")
         
         # Transform and populate
         transformed_data = {}
