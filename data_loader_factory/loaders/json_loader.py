@@ -29,8 +29,8 @@ class JSONLoader(BaseLoader):
         # Check if file exists in data_layer/test_data/ directory
         if not os.path.isabs(file_path):
             # Build path relative to data_layer/test_data/
-            base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-            file_path = os.path.join(base_dir, 'test_data', file_path)
+            project_root_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+            file_path = os.path.join(project_root_dir, 'data_layer', 'test_data', file_path)
         
         logger.info(f"Loading JSON test data from: {file_path}")
         
