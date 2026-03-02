@@ -17,13 +17,17 @@ def verify_preseed_exists(module_path: str, filename: str) -> None:
     """Execute each query in the given file and assert it returns rows.
     
     Args:
-        module_path: Module path for file location
-        filename: SQL filename to execute
+        module_path: Module path (for logging/reference, not used for file path)
+        filename: SQL filename to execute from data_layer/preseed_data/
         
     Raises:
         AssertionError: If any query returns zero rows
     """
-    full = os.path.join(os.path.dirname(str(module_path)), filename)
+    # Look for preseed SQL files in data_layer/preseed_data/
+    import pathlib
+    project_root = pathlib.Path(__file__).parent.parent
+    full = project_root / "data_layer" / "preseed_data" / filename
+    
     if not os.path.isfile(full):
         return
 
