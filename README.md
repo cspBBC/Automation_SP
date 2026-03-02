@@ -20,30 +20,30 @@ This directory contains a comprehensive test harness for validating SQL stored p
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                     TEST RUNNER                              │
-│         (NP036_SP_run.py or any user script)                │
+│         (NP036_SP_run.py, pytest modules, or custom script) │
 │  run_stored_procedures('usp_Name', TestCaseType, filename) │
 └────┬────────────────────────────────────────────────────────┘
      │
      ▼
 ┌─────────────────────────────────────────────────────────────┐
 │              LOAD TEST INPUTS (sp_test_utils.py)            │
-│  load_test_inputs(filename) → Returns Dict from JSON file   │
+│  load_test_inputs(filename) → dict from JSON file           │
 └────┬────────────────────────────────────────────────────────┘
      │
      ▼
 ┌─────────────────────────────────────────────────────────────┐
 │              FILTER TEST CASES (sp_test_utils.py)           │
 │  • Find SP name in loaded dict                              │
-│  • Filter by case_type (POSITIVE/NEGATIVE/EDGE)            │
-│  • Extract matching test cases array                        │
+│  • Filter by case_type (POSITIVE/NEGATIVE/EDGE)             │
+│  • Extract matching test cases list                        │
 └────┬────────────────────────────────────────────────────────┘
      │
      ▼
 ┌─────────────────────────────────────────────────────────────┐
 │            DETECT & EXECUTE TEST (sp_test_utils.py)         │
-│  • Single execution: run_stored_procedure()                │
-│  • Chained execution: SPChainExecutor.execute_chain()      │
-│  • Print results & errors                                   │
+│  • Single execution: run_stored_procedure()                 │
+│  • Chained execution: SPChainExecutor.execute_chain()       │
+│  • Output captured via pytest + stdout callback             │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -52,28 +52,44 @@ This directory contains a comprehensive test harness for validating SQL stored p
 ## Directory Structure
 
 ```
-tests/
-├── __init__.py                          # package marker
-├── NP036_SP_run.py                      # legacy/example runner (optional)
-├── modules/                             # pytest test modules live here
-│   ├── test_create_01.py
-│   ├── test_edit_01.py
-│   ├── schGroup_output_validator.py     # scenario helpers
-│   ├── createSchdGroup_user.sql         # preseed SQL files
-│   ├── createSchdGroup_division.sql
-│   └── ...
-├── helpers/                             # reusable utilities
+# root of repository
+├── config/                              # configuration helpers
+│   ├── __init__.py
+│   └── config.py                        # environment/connection settings
+├── core/                                # application/library code used by tests
+│   └── db/
+│       ├── connection.py               # DBSession, transaction handling
+│       ├── procedures.py               # helpers to call stored procedures
+│       ├── sp_chain_executor.py        # executes chained SP calls
+│       ├── sql_normalizer.py           # utility for formatting SQL
+│       └── __pycache__/
+├── contrib/                             # assorted utilities & scripts (legacy tools)
+├── output/                              # test output (ignored by git)
+├── resources/                           # static files, JS checks, documentation
+├── tests/                               # all pytest code
 │   ├── __init__.py                      # package marker
-│   ├── sp_test_utils.py                 # core engine (load/execute tests)
-│   ├── preseed_utils.py                 # verify reference data exists
-│   └── generic_query_helpers.py         # low‑level DB helpers
-├── enums/
-│   ├── __init__.py                      # package marker
-│   └── test_enums.py                    # TestCaseType enum definitions
-├── test_data/                           # legacy JSON location (still supported)
-│   ├── test_inputs.json                 # default test data
-│   └── test_inputs1.json                # alternate set
-└── __pycache__/                         # Python bytecode cache
+│   ├── modules/                         # individual test modules and data
+│   │   ├── test_create_01.py
+│   │   ├── test_edit_01.py
+│   │   ├── schGroup_output_validator.py
+│   │   ├── createSchdGroup_user.sql      
+│   │   ├── createSchdGroup_division.sql
+│   │   └── ...
+│   ├── helpers/                         # reusable test helpers
+│   │   ├── __init__.py
+│   │   ├── sp_test_utils.py
+│   │   ├── preseed_utils.py
+│   │   └── generic_query_helpers.py
+│   ├── enums/                          # enumerations used by tests
+│   │   ├── __init__.py
+│   │   └── test_enums.py
+│   ├── test_data/                      # legacy test JSON files (migrated versions may live in modules)
+│   └── conftest.py                     # pytest fixtures (db_transaction, output_dir)
+├── .env/.env.example                   # environment variable template
+├── pytest.ini                           # pytest configuration
+├── requirements.txt                     # Python dependencies
+├── README.md                            # this document
+└── __pycache__/
 ```
 
 ---
