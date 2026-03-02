@@ -1,796 +1,220 @@
-# Testing Framework - Complete E2E Documentation
+# SP Validation Framework
 
-This directory contains a comprehensive test harness for validating SQL stored procedures (SPs). This document explains every piece of the framework, how they work together, and walks through a real example line-by-line.
+## Overview
 
----
-
-## 📋 Table of Contents
-
-1. [Framework Architecture](#framework-architecture)
-2. [Directory Structure](#directory-structure)
-3. [Core Components Explained](#core-components-explained)
-4. [E2E Workflow with Example](#e2e-workflow-with-example)
-5. [Data Structures & Return Types](#data-structures--return-types)
-6. [Usage Guide](#usage-guide)
+This repository contains a validation framework for stored procedures (SPs) in a
+Microsoft SQL Server database. Its goal is to provide automated tests and utility
+functions that make it easy to verify the structure, parameters and behaviour of
+stored procedures. New team members can run tests locally, add new SP checks, and
+use shared helpers to simplify database interactions.
 
 ---
 
-## Framework Architecture
+## Why this framework exists ✅
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                     TEST RUNNER                              │
-│         (NP036_SP_run.py, pytest modules, or custom script) │
-│  run_stored_procedures('usp_Name', TestCaseType, filename) │
-└────┬────────────────────────────────────────────────────────┘
-     │
-     ▼
-┌─────────────────────────────────────────────────────────────┐
-│              LOAD TEST INPUTS (sp_test_utils.py)            │
-│  load_test_inputs(filename) → dict from JSON file           │
-└────┬────────────────────────────────────────────────────────┘
-     │
-     ▼
-┌─────────────────────────────────────────────────────────────┐
-│              FILTER TEST CASES (sp_test_utils.py)           │
-│  • Find SP name in loaded dict                              │
-│  • Filter by case_type (POSITIVE/NEGATIVE/EDGE)             │
-│  • Extract matching test cases list                        │
-└────┬────────────────────────────────────────────────────────┘
-     │
-     ▼
-┌─────────────────────────────────────────────────────────────┐
-│            DETECT & EXECUTE TEST (sp_test_utils.py)         │
-│  • Single execution: run_stored_procedure()                 │
-│  • Chained execution: SPChainExecutor.execute_chain()       │
-│  • Output captured via pytest + stdout callback             │
-└─────────────────────────────────────────────────────────────┘
-```
+- **Consistency**: Stored procedures across projects must follow naming,
+  parameter and data-type conventions. Manual reviews are error-prone.
+- **Regression protection**: A change in a SP can unintentionally break
+  downstream code. The test suite quickly highlights failures.
+- **Onboarding**: New developers can understand SPs and related helpers without
+  deep database knowledge.
+- **Reusable tools**: Common logic for parameter normalization, connection
+  management and result validation is centralized.
 
 ---
 
-## Directory Structure
+## What is included 📁
+
+The workspace is organized as follows:
 
 ```
-# root of repository
-├── config/                              # configuration helpers
-│   ├── __init__.py
-│   └── config.py                        # environment/connection settings
-├── core/                                # application/library code used by tests
-│   └── db/
-│       ├── connection.py               # DBSession, transaction handling
-│       ├── procedures.py               # helpers to call stored procedures
-│       ├── sp_chain_executor.py        # executes chained SP calls
-│       ├── sql_normalizer.py           # utility for formatting SQL
-│       └── __pycache__/
-├── contrib/                             # assorted utilities & scripts (legacy tools)
-├── output/                              # test output (ignored by git)
-├── resources/                           # static files, JS checks, documentation
-├── tests/                               # all pytest code
-│   ├── __init__.py                      # package marker
-│   ├── modules/                         # individual test modules and data
-│   │   ├── test_create_01.py
-│   │   ├── test_edit_01.py
-│   │   ├── schGroup_output_validator.py
-│   │   ├── createSchdGroup_user.sql      
-│   │   ├── createSchdGroup_division.sql
-│   │   └── ...
-│   ├── helpers/                         # reusable test helpers
-│   │   ├── __init__.py
-│   │   ├── sp_test_utils.py
-│   │   ├── preseed_utils.py
-│   │   └── generic_query_helpers.py
-│   ├── enums/                          # enumerations used by tests
-│   │   ├── __init__.py
-│   │   └── test_enums.py
-│   ├── test_data/                      # legacy test JSON files (migrated versions may live in modules)
-│   └── conftest.py                     # pytest fixtures (db_transaction, output_dir)
-├── .env/.env.example                   # environment variable template
-├── pytest.ini                           # pytest configuration
-├── requirements.txt                     # Python dependencies
-├── README.md                            # this document
-└── __pycache__/
+├── config/             # environment and database configuration
+├── core/               # core modules used by tests and utilities
+│   └── db/             # database helpers and normalization logic
+├── contrib/            # optional scripts, helpers, and documentation
+├── tests/              # pytest-based test definitions and helpers
+└── README.md           # (this file) overview and instructions
 ```
+
+### Key directories and files
+
+| Path                                  | Purpose
+|---------------------------------------|--------------------------------------------------
+| `config/config.py`                    | Loads environment `.env` and validates DB
+| `core/db/connection.py`              | `DBSession` context manager wrapping pyodbc or similar
+| `core/db/procedures.py`              | SP parameter introspection & executor
+| `core/db/sql_normalizer.py`          | Formats Python values per SQL type
+| `core/db/sp_chain_executor.py`       | (used by contrib) executes chains of SPs
+| `tests/conftest.py`                  | pytest fixtures (e.g. `db_session`) and shared config
+| `tests/helpers/`                      | small helpers used by tests (query generation, pre-seeding)
+| `tests/modules/*.py`                 | module-specific SP tests (`test_create_01.py`, `test_edit_01.py`)
+| `contrib/`                            | ad-hoc scripts for database inspection, permission checks, etc.
+
+Additional documentation files in `contrib/` explain architecture and
+migration guides; they serve as reference rather than executable code.
 
 ---
 
-## Core Components Explained
+## How to get started 🔧
 
-### 1. **test_enums.py** - Test Case Type Definitions
+1. **Clone the repo**:
+   ```bash
+   git clone https://github.com/yourorg/sp_validation.git
+   cd sp_validation
+   ```
 
-**Purpose:** Define categories of test cases to organize and filter tests.
+2. **Create a Python virtual environment** (Windows example):
+   ```powershell
+   python -m venv venv
+   .\venv\Scripts\Activate.ps1
+   pip install -r requirements.txt
+   ```
 
-**What it contains:**
-```python
-from enum import Enum
+3. **Configure database connection**
+   - Copy `.env.example` (if provided) to `.env` or export environment
+     variables manually.
+   - Required variables: `DB_HOST`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`.
+   - Optionally set `DB_DRIVER` if not using the default SQL Server driver.
 
-class TestCaseType(Enum):
-    POSITIVE = "POSITIVE"      # Tests that should succeed normally
-    NEGATIVE = "NEGATIVE"      # Tests that should fail gracefully  
-    EDGE = "EDGE"              # Boundary/edge case tests
-```
+4. **Run the test suite**:
+   ```bash
+   pytest -q
+   ```
+   - Tests under `tests/modules` use helper classes to validate specific
+     stored procedures. See each test file for configurable parameters.
 
-**Why it exists:**
-- Provides a standardized way to categorize tests
-- Prevents typos (using enum instead of strings)
-- Makes it easy to run only certain test types (e.g., all POSITIVE tests)
-- Improves code clarity and maintainability
+5. **Adding a new stored procedure test**
+   - Create a file under `tests/modules` named `test_<sp_name>.py`.
+   - Use existing tests as templates, import helpers from
+     `tests/helpers/sp_test_utils.py` and `core/db/procedures.py`.
+   - Optionally add new validators in `tests/modules/**_validator.py`.
 
-**Meaning of each type:**
-- **POSITIVE**: Expected happy-path scenarios. SP should execute successfully and return valid results
-- **NEGATIVE**: Invalid inputs or error conditions. SP should handle gracefully with error messages
-- **EDGE**: Boundary values, extreme cases (MAX int, empty strings, NULL values, etc.)
-
----
-
-### 2. **test_inputs.json / test_inputs1.json** - Test Case Data
-
-**Purpose:** Define what parameters to pass to each stored procedure and what to expect.
-
-**Structure (JSON format):**
-```json
-{
-  "usp_CreateUpdateSchedulingTeam": [
-    {
-      "case_id": "POSITIVE_CHAIN_CREATE_UPDATE_VALIDATE",
-      "case_type": "POSITIVE",
-      "description": "3-step chain: Create team, update allocations, update miscellaneous",
-      "chain_config": [
-        {
-          "step": 1,
-          "sp_name": "usp_CreateUpdateSchedulingTeam",
-          "parameters": {
-            "@schedulingTeamName": "AutoTest_20260227_181957_457",
-            "@divisionId": 6,
-            ...
-          },
-          "output_mapping": {
-            "@intnewteamid": "created_team_id"
-          }
-        },
-        {
-          "step": 2,
-          "sp_name": "usp_UpdateAllocation",
-          ...
-        }
-      ]
-    },
-    {
-      "case_id": "POSITIVE_SINGLE",
-      "case_type": "POSITIVE",
-      "description": "Simple single SP execution",
-      "parameters": {
-        "@schedulingTeamName": "Team1",
-        "@divisionId": 1,
-        ...
-      }
-    }
-  ]
-}
-```
-
-**Field Meanings:**
-- **Top-level keys** (e.g., `"usp_CreateUpdateSchedulingTeam"`): Stored procedure names that become the test groups
-- **Array of test cases**: Each SP can have multiple test cases of different types
-- **case_id**: Unique identifier for this specific test case (e.g., "POSITIVE_CHAIN_CREATE_UPDATE_VALIDATE")
-- **case_type**: Must match enum (POSITIVE, NEGATIVE, or EDGE) - used to filter tests
-- **description**: Human-readable explanation of what this test validates
-- **parameters**: Named parameters (@param_name) to pass to SP (used for single execution)
-- **chain_config**: Array of sequential SP steps (used for chained execution). Each step:
-  - **step**: Numeric order (1, 2, 3...)
-  - **sp_name**: Which SP to call in this step
-  - **parameters**: Parameters for this SP (can reference outputs from previous steps)
-  - **output_mapping**: Maps SP output parameters to chain variables (key = SP param, value = chain variable name)
-
-**Why this structure:**
-- All test data in one file, no code changes needed to add tests
-- Supports both single and chained SP executions
-- Named parameters make large parameter lists readable
-- Output mapping allows passing results between chained SPs
+6. **Using core helpers directly in scripts**
+   - Import `DBSession` from `core.db.connection` to run queries.
+   - Call `procedures.run_stored_procedure` with a dict to automatically
+     normalize parameters.
 
 ---
 
-### 3. **sp_test_utils.py** - Core Testing Engine
+## File-by-file explanation
 
-**Purpose:** Load test data, execute SPs, and report results.
+- **`requirements.txt`**: Python dependencies. Key packages include
+  `pytest`, `python-dotenv` and whatever database driver is used (`pyodbc`,
+  `pymssql`, `sqlalchemy`, etc.).
 
-#### **Function 1: load_test_inputs(test_inputs)**
+- **`pytest.ini`**: pytest configuration for test discovery and markers.
 
-The loader prefers JSON files placed next to the pytest modules under `tests/modules` (this keeps data close to the code). Legacy copies in `tests/test_data` are still supported for backward compatibility but can be removed once all tests have been migrated.
+- **`config/config.py`**: Loads `.env` and defines a `DatabaseConfig` class with a
+  `validate()` method. Use `DatabaseConfig.validate()` early in any script to
+  ensure environment variables are set.
 
-```python
-def load_test_inputs(test_inputs):
-    """Load test inputs from JSON file.
-    
-    Args:
-        test_inputs: Filename without extension (e.g., 'users_tests', 'schGroup_testData').
-                    MANDATORY. 
-                    A ".json" extension is appended if missing.
+- **`core/db/connection.py`**: A simple wrapper providing a `DBSession` context
+  manager. It reads connection settings from `DatabaseConfig` and uses them to
+  open a cursor. The context manager automatically commits/rolls back and
+  cleans up resources.
 
-    The function first checks `tests/modules/<filename>.json`; if no file is
-    found there it falls back to `tests/test_data/<filename>.json`.
-    """
-```
+- **`core/db/sql_normalizer.py`**: Contains logic for converting Python values
+  (strings, dates, booleans) into formats appropriate for SQL Server parameter
+  binding. It also defines `SQLDataType` constants used throughout the framework.
 
-**What it does:**
-1. Takes a filename (e.g., `"test_inputs1"`)
-2. Constructs full path: `tests/test_data/test_inputs1.json`
-3. Reads and parses the JSON file
-4. Returns it as a Python dictionary
+- **`core/db/procedures.py`**: The heart of SP interaction. Features include
+  looking up parameter metadata (`get_stored_procedure_parameters`), building
+  type mappings, and executing SPs with normalization via
+  `run_stored_procedure`. This file is heavily used by tests to execute the SP
+  under test and assert results.
 
-**Return type:** `dict`
+- **`tests/conftest.py`**: Defines pytest fixtures used across tests (e.g.
+  `db_session` or `db_config`), configures logging, and may define command-line
+  options for selecting test servers.
 
-**Example:**
-```python
-result = load_test_inputs('test_inputs1')
-# Returns:
-# {
-#   "usp_CreateUpdateSchedulingTeam": [
-#     {"case_id": "...", "case_type": "...", ...},
-#     {...}
-#   ],
-#   "usp_GetUsers": [...]
-# }
-```
+- **`tests/helpers/generic_query_helpers.py`**: Utility functions for building
+  SQL query strings (e.g. `select_from_table`) used by multiple test modules.
 
-**Why it exists:**
-- Centralizes JSON loading logic
-- Makes filenames flexible (no hardcoding paths)
-- Automatically appends `.json` extension (convenience)
-- Handles file not found errors gracefully
+- **`tests/helpers/sp_test_utils.py`**: Contains reusable logic for executing
+  procedures and verifying responses. It may wrap `procedures.run_stored_procedure`
+  and provide standardized assertions (e.g., checking return codes, row counts).
 
----
+- **`tests/modules/test_create_01.py`** & **`test_edit_01.py`**: Example test
+  files that demonstrate how to create data, call SPs with various parameters,
+  and assert expected outcomes. They depend on JSON test data and validator
+  files found in the same directory.
 
-#### **Function 2: run_stored_procedures(sp_name, case_type, test_inputs)**
+  The section below walks through `test_create_01.py` as a concrete example.
 
-```python
-def run_stored_procedures(sp_name, case_type=None, test_inputs=None):
-    """
-    Run test cases from JSON matching the given stored procedure name.
-    
-    Args:
-        sp_name: Name of the stored procedure (e.g., 'usp_CreateUpdateSchedulingTeam')
-        case_type: TestCaseType enum member (POSITIVE, NEGATIVE, EDGE) or string
-        test_inputs: Filename without extension (e.g., 'users_tests', 'shekjar', 'schgrp_fta').
-                    MANDATORY - must be provided.
-    """
-```
+- **`tests/modules/schGroup_output_validator.py`**: Example validator script
+  that inspects output from an SP and ensures that it matches expected
+  patterns or values.
 
-**What it does (step-by-step):**
+- **`contrib/` scripts**: Extra utilities such as `check_sp_parameters.py` or
+  `db_inspect.py` for manual inspection; these are not required by the core
+  test framework but can help with debugging or migrating.
 
-1. **Load JSON:** `test_data = load_test_inputs(test_inputs)`
-   - Calls load_test_inputs to get the full test data dictionary
 
-2. **Find SP tests:** Check if `sp_name` exists in `test_data`
-   - If not found, print error message and return
+### Example test walk‑through 🧪
 
-3. **Extract test cases:** `test_cases = test_data[sp_name]`
-   - Gets array of all test cases for this SP
-   - Example: `test_data['usp_CreateUpdateSchedulingTeam']` returns the array of test cases
+Here’s how `tests/modules/test_create_01.py` is structured and what each piece
+is doing:
 
-4. **Filter by type:** If case_type provided, filter test_cases
-   - Keeps only test cases where `case_type` matches (POSITIVE, NEGATIVE, EDGE)
-   - Converts enum `.name` to uppercase for comparison
+1. **Imports** — bring in pytest, helper functions and validators:
+   ```python
+   import pytest
+   from tests.helpers.sp_test_utils import run_stored_procedures
+   from tests.helpers.preseed_utils import verify_preseed_exists
+   from tests.modules.schGroup_output_validator import (
+       getSchdGrpDetails,
+       validateSchdGrpActive,
+       getSchdGrpHistory,
+       validateSchdGrpHistoryExists,
+   )
+   from tests.enums.test_enums import TestCaseType
+   ```
 
-5. **Iterate and execute:** For each test case:
-   - Extract metadata (case_id, description, etc.)
-   - Print separator and test info
-   - Detect execution type:
-     - **If has 'chain_config'**: Call `_execute_chain_test()`
-     - **If has 'parameters'**: Call `_execute_single_test()`
-   - Print results or errors
+2. **Constants** — fixed values used across tests (e.g. `TEST_USER_ID`).
+3. **Fixture `created_team_id`**
+   - Uses `db_transaction` fixture to run inside a rollbackable transaction.
+   - Verifies that prerequisite rows are present by calling
+     `verify_preseed_exists` with SQL files placed alongside the test.
+   - Calls `run_stored_procedures` which actually executes the SP under test
+     (`usp_CreateUpdateSchedulingTeam`) using JSON data from
+     `createSchdGroup_testData.json`.
+   - Asserts that an ID was returned and yields it to dependent tests.
 
-**Return type:** `None` (prints to console, raises exceptions on error)
+4. **Test `test_history_create_update`**
+   - Fetches the newly created team with `getSchdGrpDetails` and ensures it
+     exists.
+   - Queries history records and asserts that the creation event is present
+     using helper validators.
+   - Because the test runs in a database transaction, no manual cleanup is
+     needed; the rollback at the end removes the row.
 
-**Example flow:**
-```python
-run_stored_procedures('usp_CreateUpdateSchedulingTeam', TestCaseType.POSITIVE, 'test_inputs1')
-# Step 1: Load test_inputs1.json
-# Step 2: Find 'usp_CreateUpdateSchedulingTeam' in loaded dict ✓ Found
-# Step 3: Get all test cases for this SP (array)
-# Step 4: Filter to only POSITIVE type test cases
-# Step 5: For each POSITIVE case:
-#   - Print case info
-#   - Detect if single or chain execution
-#   - Execute and print results
-```
+5. **Test `test_active_flag`**
+   - Simple assertion that the active‑flag logic works via
+     `validateSchdGrpActive`.
+
+This example highlights common patterns:
+
+- Use reusable fixtures for setup/teardown
+- Keep test data external (JSON or SQL files)
+- Leverage validators to encapsulate complex assertions
+- Track shared constants (like user IDs) at the top of the file
 
 ---
 
-#### **Function 3: _execute_single_test(sp_name, parameters)**
+## Tips for contributors ✍️
 
-```python
-def _execute_single_test(sp_name, parameters):
-    """Execute a single SP test."""
-```
-
-**What it does:**
-1. Calls `run_stored_procedure(sp_name, parameters)` from core.db.procedures
-2. Receives result (list of rows or None)
-3. Prints results in formatted output
-
-**Return type:** `None` (prints output)
-
-**What run_stored_procedure returns:** 
-- List of database rows (tuples or named tuples) if SP has SELECT statements
-- Empty list if no results
-- None if SP has no output
+- Keep helpers generic; avoid hardcoding SP names or table names whenever
+  possible.
+- When adding new dependencies, update `requirements.txt` and confirm tests
+  pass in a clean venv.
+- Document new scripts or modules in this README or in `contrib/` with a
+  markdown file.
+- Run `black` or your preferred formatter on changed files to maintain style.
 
 ---
 
-#### **Function 4: _execute_chain_test(chain_config)**
-
-```python
-def _execute_chain_test(chain_config):
-    """Execute a chained SP test."""
-```
-
-**What it does:**
-1. Gets database connection
-2. Creates SPChainExecutor instance
-3. Calls `executor.execute_chain(chain_config)`
-4. Prints success or failure with details
-
-**chain_config structure:**
-```python
-chain_config = [
-  {
-    "step": 1,
-    "sp_name": "usp_Create",
-    "parameters": {...},
-    "output_mapping": {"@outParam": "chain_var_name"}
-  },
-  {
-    "step": 2,
-    "sp_name": "usp_Update",
-    "parameters": {...}  # Can reference chain variables from step 1
-  }
-]
-```
-
-**SPChainExecutor.execute_chain() return type:** `dict`
-```python
-{
-  'success': True/False,           # Whether ALL steps succeeded
-  'failed_step': 1,                # Which step failed (if any)
-  'error': 'Error message',        # Error description
-  'chain_data': {                  # Data passed between steps
-    'created_team_id': 123,
-    'team_name': 'AutoTest_...'
-  },
-  'partial_results': {             # Results from steps before failure
-    'step_1': {'rows': [...]},
-    'step_2': {'rows': [...]}
-  }
-}
-```
-
-**Why this exists:**
-- Real-world testing often needs multiple related SP calls in sequence
-- Step 1 creates data, Step 2 updates it, Step 3 validates it
-- Need to capture outputs from earlier steps and pass to later steps
-- Need to track which step failed if there's an error
-
----
-
-## E2E Workflow with Example
-
-### **Real Example: NP036_SP_run.py**
-
-```python
-from tests.helpers.sp_test_utils import test_stored_procedures
-from tests.enums.test_enums import TestCaseType
-
-test_stored_procedures('usp_CreateUpdateSchedulingTeam', TestCaseType.POSITIVE, "test_inputs1")
-```
-
-### **Line-by-Line Execution:**
-
-**Line 1-2: Imports**
-```python
-from tests.helpers.sp_test_utils import test_stored_procedures
-```
-- Imports the main test function from sp_test_utils.py
-- This function coordinates the entire testing workflow
-
-```python
-from tests.enums.test_enums import TestCaseType
-```
-- Imports the enum with test case type definitions (POSITIVE, NEGATIVE, EDGE)
-- Ensures type-safe filtering
-
-**Line 4: Execute**
-```python
-test_stored_procedures('usp_CreateUpdateSchedulingTeam', TestCaseType.POSITIVE, "test_inputs1")
-```
-
-### **What Happens Inside:**
-
-#### **Step 1: Load Test Data**
-```python
-test_data = load_test_inputs("test_inputs1")  # Load tests/test_data/test_inputs1.json
-```
-- File is parsed into Python dictionary:
-```python
-{
-  "usp_CreateUpdateSchedulingTeam": [
-    {
-      "case_id": "POSITIVE_CHAIN_CREATE_UPDATE_VALIDATE",
-      "case_type": "POSITIVE",
-      "description": "3-step chain: Create team, update allocations...",
-      "chain_config": [...]
-    }
-  ]
-}
-```
-
-#### **Step 2: Verify SP Exists in Test Data**
-```python
-sp_name = 'usp_CreateUpdateSchedulingTeam'
-if sp_name not in test_data:  # Check if this SP has test cases
-    print("No test cases found...")
-    return
-# ✓ FOUND - proceed
-```
-
-#### **Step 3: Extract Test Cases for This SP**
-```python
-test_cases = test_data['usp_CreateUpdateSchedulingTeam']
-# Result: Array with 1 test case object
-# [
-#   {
-#     "case_id": "POSITIVE_CHAIN_CREATE_UPDATE_VALIDATE",
-#     "case_type": "POSITIVE",
-#     "chain_config": [...]
-#   }
-# ]
-```
-
-#### **Step 4: Filter by Case Type**
-```python
-case_type = TestCaseType.POSITIVE  # Enum member
-normalized = case_type.name.upper()  # Convert to "POSITIVE"
-
-# Filter: keep only cases where case_type == "POSITIVE"
-test_cases = [tc for tc in test_cases 
-             if tc.get('case_type', '').upper() == normalized]
-# Result: Keeps the 1 POSITIVE test case (same as before in this example)
-```
-
-#### **Step 5: Iterate and Execute**
-```python
-for idx, test_case in enumerate(test_cases, 1):
-    # idx=1, test_case = {"case_id": "...", "case_type": "POSITIVE", ...}
-    
-    case_id = test_case.get('case_id', f'case_{idx}')  # "POSITIVE_CHAIN_CREATE_UPDATE_VALIDATE"
-```
-
----
-
-## Example Test Walkthrough (pytest)
-
-To illustrate how all of this comes together in a real pytest module, we'll step through `tests/modules/test_create_01.py`.
-
-### File: `tests/modules/test_create_01.py`
-This is the test file developers write. It defines:
-
-* **imports** from the helpers and validators
-* a fixture `created_team_id` that
-  * verifies pre‑seed rows exist using `verify_preseed_exists` (reads SQL files in `tests/modules`)
-  * calls `run_stored_procedures()` to execute an SP chain
-  * returns the generated ID for downstream tests
-* two test functions (`test_history_create_update` and `test_active_flag`) that
-  * call validator helpers such as `getSchdGrpDetails` and `validateSchdGrpHistoryExists`.
-
-Each of those helper calls invokes code in other files; they are explained below.
-
-### File: `tests/helpers/preseed_utils.py`
-Called at the start of the fixture. It opens the given SQL file (e.g. `createSchdGroup_user.sql`) and executes every `SELECT` statement on a fresh database connection. The purpose is to fail fast if essential reference data (user 10201, division 1) is missing.
-
-### File: `tests/helpers/sp_test_utils.py`
-This is the engine behind `run_stored_procedures()`. When the fixture calls it:
-
-1. It loads `tests/test_data/test_inputs.json` (or whichever JSON file is referenced).
-2. Filters to POSITIVE cases for the SP name.
-3. Detects the chain configuration present in the JSON.
-4. Calls `SPChainExecutor.execute_chain()` to execute the three-step chain on the shared transaction connection provided by the `db_transaction` fixture.
-5. Returns a dictionary containing `created_team_id`, which the fixture asserts is non‑null.
-
-### File: `core/db/sp_chain_executor.py`
-This component runs each step in the chain sequentially, passing outputs from one step to the next. During test runs it logs each step’s parameters and the response rows; pytest captures that output and writes it into `output/tests/modules/test_create_01.py/<testname>/stdout.txt`.
-
-### File: `tests/modules/schGroup_output_validator.py`
-The test functions invoke these convenience wrappers to query the database after the SP has run. They execute simple `SELECT` statements (via `generic_query_helpers.execute_query()`), log parameters and results, and return values that the assertions in the tests use.
-
-### File: `tests/helpers/generic_query_helpers.py`
-Provides `execute_query()` and `execute_statement()`, which open a `DBSession` and run SQL with parameterization.
-
-### File: `core/db/connection.py`
-During the entire test, the `db_transaction` fixture has set a thread‑local connection and begun a transaction. Every call to `DBSession()` reuses that connection. After the test finishes, the fixture rolls back – ensuring no data remains. This is why the cleanup helper script (`schdGroup_cleandb.py`) is no longer needed.
-
-### Pytest Fixture: `tests/conftest.py`
-It defines `db_transaction` which:
-
-* opens a connection and sets it as the test transaction
-* yields control to the test
-* rolls back the transaction and clears the thread‑local storage at teardown
-* also configures the `output_dir` for the current test so that captured stdout/stderr are written to disk.
-
-### Final Output
-When you run the module (e.g. `python -m pytest tests/modules/test_create_01.py -q`), pytest creates a folder structure under `output/tests/modules/test_create_01.py` for each test function (e.g. `test_history_create_update` and `test_active_flag`). Within each there is a `stdout.txt` file containing all of the logged information shown earlier:
-
-* the 3‑step chain execution details from `SPChainExecutor`
-* every validator call’s parameter list and result count (and sample data)
-* the final test summary produced by pytest
-
-Because the transaction is rolled back, the SchedulingTeam rows created during the test never persist in the database, even though the SP commits internally.
-
----
-
-With the above walkthrough you can see **file by file** what gets invoked, **why** each component exists, and **how** the successful outputs end up in the `output/` directory for easy inspection.
-
-    case_type_label = test_case.get('case_type', 'unknown')  # "POSITIVE"
-    description = test_case.get('description', '')  # "3-step chain: ..."
-    
-    # Print header
-    print("\n" + "="*80)
-    print(f"[1/1] Case: POSITIVE_CHAIN_CREATE_UPDATE_VALIDATE")
-    print(f"Type: POSITIVE")
-    print(f"Description: 3-step chain: Create team, update allocations...")
-    print("="*80)
-    
-    # Detect execution type
-    if 'chain_config' in test_case:  # ✓ This test case HAS chain_config
-        _execute_chain_test(test_case['chain_config'])
-        # Calls SPChainExecutor to run 3 sequential SPs
-    else:
-        _execute_single_test(sp_name, test_case['parameters'])
-```
-
-#### **Step 6: Chain Execution Details**
-
-Inside `_execute_chain_test(chain_config)`:
-```python
-# chain_config is array of 3 steps
-connection = get_connection()  # Get DB connection
-executor = SPChainExecutor(connection)
-result = executor.execute_chain(chain_config)
-
-# Returns:
-# {
-#   'success': True/False,
-#   'failed_step': None,
-#   'error': None,
-#   'chain_data': {
-#     'created_team_id': 12345,    # Output from step 1
-#     'updated_count': 5           # Output from step 2
-#   },
-#   'partial_results': {...}
-# }
-```
-
-#### **Step 7: Print Results**
-```python
-if result['success']:
-    print("\n[SUCCESS] Chain execution completed successfully!")
-    print("\nChain data (extracted/passed between steps):")
-    print(f"  created_team_id: 12345")
-    print(f"  updated_count: 5")
-else:
-    print("\n[FAILED] CHAIN EXECUTION FAILED")
-    print(f"Failed at: STEP {result['failed_step']}")
-    print(f"Error: {result['error']}")
-    # Print partial results up to failure point
-```
-
----
-
-## Data Structures & Return Types
-
-### **load_test_inputs() Return Type: `dict`**
-
-> ⚠️ **Note:** The loader searches `tests/modules` first, so there's no need to keep copies in `tests/test_data` anymore. You can safely delete them.
-
-```python
-{
-  "usp_CreateUpdateSchedulingTeam": [
-    {"case_id": "...", "case_type": "...", ...},
-    {...}
-  ],
-  "usp_GetUsers": [
-    {...}
-  ]
-}
-```
-
-### **run_stored_procedures() Return Type: `None`**
-
-- Prints all output to console
-- Raises `FileNotFoundError` if JSON file not found
-- Raises `ValueError` if test_inputs not provided (mandatory)
-
-### **run_stored_procedure() Return Type: `list` or `None`**
-
-```python
-# From core.db.procedures
-result = run_stored_procedure('usp_GetUsers', {'@userId': 123})
-
-# Returns:
-# [
-#   Row(id=1, name='User1', email='user1@example.com'),
-#   Row(id=2, name='User2', email='user2@example.com')
-# ]
-# OR: None if no results
-```
-
-### **SPChainExecutor.execute_chain() Return Type: `dict`**
-
-```python
-{
-  'success': bool,
-  'failed_step': int | None,
-  'error': str | None,
-  'chain_data': dict,           # Variables passed between steps
-  'partial_results': dict       # Results from completed steps
-}
-```
-
----
-
-## Usage Guide
-
-### **Basic Usage: Run Tests**
-
-```python
-from tests.helpers.sp_test_utils import test_stored_procedures
-from tests.enums.test_enums import TestCaseType
-
-# Run only POSITIVE tests for usp_CreateUpdateSchedulingTeam from test_inputs1.json
-test_stored_procedures('usp_CreateUpdateSchedulingTeam', TestCaseType.POSITIVE, "test_inputs1")
-
-# Run only NEGATIVE tests
-run_stored_procedures('usp_GetUsers', TestCaseType.NEGATIVE, "test_inputs1")
-
-# Run only EDGE case tests
-run_stored_procedures('usp_ValidateTeam', TestCaseType.EDGE, "test_inputs1")
-```
-
-### **Create New Test File**
-
-1. Create JSON file in `tests/test_data/` directory (e.g., `my_tests.json`)
-
-2. Define test structure:
-```json
-{
-  "usp_YourProcedure": [
-    {
-      "case_id": "POSITIVE_CASE_1",
-      "case_type": "POSITIVE",
-      "description": "What this test validates",
-      "parameters": {
-        "@param1": "value1",
-        "@param2": 123
-      }
-    },
-    {
-      "case_id": "NEGATIVE_INVALID_INPUT",
-      "case_type": "NEGATIVE",
-      "description": "Test with invalid input",
-      "parameters": {
-        "@param1": "invalid",
-        "@param2": -999
-      }
-    }
-  ]
-}
-```
-
-3. Use in tests:
-```python
-run_stored_procedures('usp_YourProcedure', TestCaseType.POSITIVE, "my_tests")
-```
-
-### **Add Chained Tests**
-
-```json
-{
-  "usp_CreateUpdateSchedulingTeam": [
-    {
-      "case_id": "CHAIN_CREATE_THEN_UPDATE",
-      "case_type": "POSITIVE",
-      "description": "Create team, then update it",
-      "chain_config": [
-        {
-          "step": 1,
-          "sp_name": "usp_CreateTeam",
-          "parameters": {
-            "@teamName": "TestTeam",
-            "@divisionId": 1
-          },
-          "output_mapping": {
-            "@outTeamId": "team_id"
-          }
-        },
-        {
-          "step": 2,
-          "sp_name": "usp_UpdateTeam",
-          "parameters": {
-            "@teamId": "$(team_id)",
-            "@newName": "UpdatedTeam"
-          }
-        }
-      ]
-    }
-  ]
-}
-```
-
-### **Generate Skeletal Parameters**
-
-For SPs with many parameters, auto-generate parameter template:
-
-```bash
-python -m contrib.generate_params usp_CreateUpdateSchedulingTeam --named
-```
-
-Output:
-```python
-{
-  "@schedulingTeamName": "",
-  "@schedulingTeamDescription": "",
-  "@divisionId": 0,
-  "@isActive": 0,
-  ...
-}
-```
-
-Copy this into your JSON test file and fill in values.
-
----
-
-## Key Concepts Summary
-
-| Concept | Purpose | Type |
-|---------|---------|------|
-| **TestCaseType Enum** | Categorize tests (POSITIVE/NEGATIVE/EDGE) | Classification |
-| **JSON Test File** | Define test data and expected behavior | Data |
-| **load_test_inputs()** | Parse JSON into Python dict | Loader |
-| **run_stored_procedures()** | Main orchestrator function | Controller |
-| **_execute_single_test()** | Run one SP once | Executor |
-| **_execute_chain_test()** | Run multiple SPs sequentially | Executor |
-| **SPChainExecutor** | Manages chained SP execution | Engine |
-| **chain_data** | Variables passed between chain steps | State |
-| **output_mapping** | Map SP outputs to chain variables | Transformer |
-
----
-
-## Why Each Piece Exists
-
-| Component | Why Created | Benefit |
-|-----------|-------------|---------|
-| Enum | Type safety, prevent typos | Can't use invalid case types by accident |
-| JSON files | Separate data from code | Add tests without recompiling code |
-| load_test_inputs() | Centralize loading logic | Flexible filenames, consistent error handling |
-| run_stored_procedures() | Main orchestration | One function call runs entire test workflow |
-| Single test function | Basic execution | Simplest case is straightforward |
-| Chain test function | Complex workflows | Real-world scenarios need multiple SPs |
-| SPChainExecutor | State management | Track data passed between steps |
-| output_mapping | Variable capture | Step 2 can use outputs from Step 1 |
-
----
-
-## Adding New Helpers
-
-Place reusable helpers in `tests/helpers/` and scripts/one-off utilities in `contrib/`.
-
-**Example:** If you create `tests/helpers/my_helper.py`:
-```python
-def my_helper_function():
-    """Useful utility"""
-    pass
-```
-
-Import it in tests:
-```python
-from tests.helpers.my_helper import my_helper_function
-```
+> _This README is intended to give a newcomer enough context to start working
+> with the SP validation framework and to understand which files are necessary
+> for writing and running tests._
+
+Feel free to expand sections or add project-specific details as the codebase
+evolves. Happy testing! 🎉
