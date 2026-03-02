@@ -1,8 +1,5 @@
 from tests.helpers.sp_test_utils import test_stored_procedures
-from tests.helpers.testcase_output_validator import (
-    getSchdGrpDetails,
-    validateSchdGrpActive,
-)
+from tests.modules.schGroup_output_validator import getSchdGrpDetails, validateSchdGrpActive
 from tests.enums.test_enums import TestCaseType
 
 # Run test and get results
@@ -15,8 +12,8 @@ result = test_stored_procedures(
 # Query created team
 team = getSchdGrpDetails(result['created_team_id'])
 
-
-print("\nCreated Scheduling Team Details:")
-for key, value in team.items():
-    print(f"  {key}: {value}")
+if validateSchdGrpActive(result['created_team_id']):
+    assert True, " Scheduling group was created and is active"
+else:
+    assert False, " Scheduling group was created but is not active"
 

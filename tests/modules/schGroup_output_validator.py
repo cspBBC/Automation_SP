@@ -1,4 +1,4 @@
-from .generic_query_helpers import execute_query
+from ..helpers.generic_query_helpers import execute_query
 from typing import Dict, Any
 
 
