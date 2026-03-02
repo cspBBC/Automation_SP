@@ -438,6 +438,72 @@ for idx, test_case in enumerate(test_cases, 1):
     # idx=1, test_case = {"case_id": "...", "case_type": "POSITIVE", ...}
     
     case_id = test_case.get('case_id', f'case_{idx}')  # "POSITIVE_CHAIN_CREATE_UPDATE_VALIDATE"
+```
+
+---
+
+## Example Test Walkthrough (pytest)
+
+To illustrate how all of this comes together in a real pytest module, we'll step through `tests/modules/test_create_01.py`.
+
+### File: `tests/modules/test_create_01.py`
+This is the test file developers write. It defines:
+
+* **imports** from the helpers and validators
+* a fixture `created_team_id` that
+  * verifies pre‑seed rows exist using `verify_preseed_exists` (reads SQL files in `tests/modules`)
+  * calls `run_stored_procedures()` to execute an SP chain
+  * returns the generated ID for downstream tests
+* two test functions (`test_history_create_update` and `test_active_flag`) that
+  * call validator helpers such as `getSchdGrpDetails` and `validateSchdGrpHistoryExists`.
+
+Each of those helper calls invokes code in other files; they are explained below.
+
+### File: `tests/helpers/preseed_utils.py`
+Called at the start of the fixture. It opens the given SQL file (e.g. `createSchdGroup_user.sql`) and executes every `SELECT` statement on a fresh database connection. The purpose is to fail fast if essential reference data (user 10201, division 1) is missing.
+
+### File: `tests/helpers/sp_test_utils.py`
+This is the engine behind `run_stored_procedures()`. When the fixture calls it:
+
+1. It loads `tests/test_data/test_inputs.json` (or whichever JSON file is referenced).
+2. Filters to POSITIVE cases for the SP name.
+3. Detects the chain configuration present in the JSON.
+4. Calls `SPChainExecutor.execute_chain()` to execute the three-step chain on the shared transaction connection provided by the `db_transaction` fixture.
+5. Returns a dictionary containing `created_team_id`, which the fixture asserts is non‑null.
+
+### File: `core/db/sp_chain_executor.py`
+This component runs each step in the chain sequentially, passing outputs from one step to the next. During test runs it logs each step’s parameters and the response rows; pytest captures that output and writes it into `output/tests/modules/test_create_01.py/<testname>/stdout.txt`.
+
+### File: `tests/modules/schGroup_output_validator.py`
+The test functions invoke these convenience wrappers to query the database after the SP has run. They execute simple `SELECT` statements (via `generic_query_helpers.execute_query()`), log parameters and results, and return values that the assertions in the tests use.
+
+### File: `tests/helpers/generic_query_helpers.py`
+Provides `execute_query()` and `execute_statement()`, which open a `DBSession` and run SQL with parameterization.
+
+### File: `core/db/connection.py`
+During the entire test, the `db_transaction` fixture has set a thread‑local connection and begun a transaction. Every call to `DBSession()` reuses that connection. After the test finishes, the fixture rolls back – ensuring no data remains. This is why the cleanup helper script (`schdGroup_cleandb.py`) is no longer needed.
+
+### Pytest Fixture: `tests/conftest.py`
+It defines `db_transaction` which:
+
+* opens a connection and sets it as the test transaction
+* yields control to the test
+* rolls back the transaction and clears the thread‑local storage at teardown
+* also configures the `output_dir` for the current test so that captured stdout/stderr are written to disk.
+
+### Final Output
+When you run the module (e.g. `python -m pytest tests/modules/test_create_01.py -q`), pytest creates a folder structure under `output/tests/modules/test_create_01.py` for each test function (e.g. `test_history_create_update` and `test_active_flag`). Within each there is a `stdout.txt` file containing all of the logged information shown earlier:
+
+* the 3‑step chain execution details from `SPChainExecutor`
+* every validator call’s parameter list and result count (and sample data)
+* the final test summary produced by pytest
+
+Because the transaction is rolled back, the SchedulingTeam rows created during the test never persist in the database, even though the SP commits internally.
+
+---
+
+With the above walkthrough you can see **file by file** what gets invoked, **why** each component exists, and **how** the successful outputs end up in the `output/` directory for easy inspection.
+
     case_type_label = test_case.get('case_type', 'unknown')  # "POSITIVE"
     description = test_case.get('description', '')  # "3-step chain: ..."
     
