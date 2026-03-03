@@ -13,7 +13,7 @@ class TemplateTransformer:
     """Transform keyword-driven CSV data into populated JSON templates."""
     
     @staticmethod
-    def load_and_transform(csv_file: str, template_file: str = None, filter_executed: bool = True, module_filter: str = None) -> Dict[str, Any]:
+    def load_and_transform(csv_file: str, template_file: str = None, filter_executed: bool = True, module_filter: str = None, filter_test_name: str = None) -> Dict[str, Any]:
         """Load CSV data and transform using generic template.
         
         Args:
@@ -24,6 +24,7 @@ class TemplateTransformer:
                 so that the loader can locate the right section.
             filter_executed: If True, only load rows where Executed='Yes'
             module_filter: Optional - only return data for specific module/SP name
+            filter_test_name: Optional - only return data for specific test name (for independent test execution)
             
         Returns:
             Transformed test data dictionary ready for execution
@@ -33,7 +34,8 @@ class TemplateTransformer:
                 'keyword_driven_tests.csv',
                 template_file='data_layer/test_data/usp_CreateUpdateSchedulingTeam/generic_template.json',
                 filter_executed=True,
-                module_filter='usp_CreateUpdateSchedulingTeam'
+                module_filter='usp_CreateUpdateSchedulingTeam',
+                filter_test_name='Create_New_Schd_Team_01'
             )
         """
         if template_file is None:
@@ -70,6 +72,11 @@ class TemplateTransformer:
                 # Filter by Executed status
                 if filter_executed and not test_case.get('executed', False):
                     logger.debug(f"Skipping test case {test_case.get('case_id')} (not executed)")
+                    continue
+                
+                # Filter by test name if specified (for independent test execution)
+                if filter_test_name and test_case.get('case_id') != filter_test_name:
+                    logger.debug(f"Skipping test case {test_case.get('case_id')} (not matching filter: {filter_test_name})")
                     continue
                 
                 # Populate template with CSV values

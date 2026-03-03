@@ -368,7 +368,7 @@ def _execute_chain_test(chain_config: List[Dict], context: Dict = None, logger=N
             connection.close()
 
 
-def run_stored_procedures_from_csv(filter_executed: bool = True) -> Dict[str, Any]:
+def run_stored_procedures_from_csv(filter_executed: bool = True, filter_test_name: str = None) -> Dict[str, Any]:
     """Auto-discovery scaffold framework for CSV-driven test execution.
     
     No arguments needed - everything comes from CSV!
@@ -384,6 +384,7 @@ def run_stored_procedures_from_csv(filter_executed: bool = True) -> Dict[str, An
     
     Args:
         filter_executed: If True, only run rows where Executed='Yes' (default: True)
+        filter_test_name: If provided, only run the test case with this name (for independent test execution)
     
     Returns:
         Result summary dictionary with all test results
@@ -394,6 +395,9 @@ def run_stored_procedures_from_csv(filter_executed: bool = True) -> Dict[str, An
         
         # Or filter to executed tests only (default)
         result = run_stored_procedures_from_csv(filter_executed=True)
+        
+        # Or run a specific test case independently
+        result = run_stored_procedures_from_csv(filter_test_name='Create_New_Schd_Team_01')
     """
     from test_engine_layer.template_transformer import TemplateTransformer
     
@@ -428,6 +432,9 @@ def run_stored_procedures_from_csv(filter_executed: bool = True) -> Dict[str, An
         unique_modules = list(csv_data.keys())
         logger.info(f"Discovered {len(unique_modules)} unique module(s) in CSV: {unique_modules}\n")
         
+        if filter_test_name:
+            logger.info(f"Running specific test case: {filter_test_name}\n")
+        
         # Step 3: For each module, find its folder and template
         all_results = {}
         # Prefer any test transaction connection (set by pytest fixture) to avoid committing
@@ -440,11 +447,14 @@ def run_stored_procedures_from_csv(filter_executed: bool = True) -> Dict[str, An
             connection = get_connection()
         
         for module_name in unique_modules:
-            # Collect all requested operations for this module (respecting executed flag)
+            # Collect all requested operations for this module (respecting executed flag and test name filter)
             module_rows = csv_data.get(module_name, [])
             ops = set()
             for row in module_rows:
                 if filter_executed and not row.get('executed', False):
+                    continue
+                # If specific test_name filter provided, only include matching rows
+                if filter_test_name and row.get('case_id') != filter_test_name:
                     continue
                 op = row.get('operation')
                 if op:
@@ -485,7 +495,8 @@ def run_stored_procedures_from_csv(filter_executed: bool = True) -> Dict[str, An
                     csv_filename,
                     template_file=specific_template,
                     filter_executed=filter_executed,
-                    module_filter=module_name
+                    module_filter=module_name,
+                    filter_test_name=filter_test_name
                 )
 
                 if not test_data_for_op or module_name not in test_data_for_op:
