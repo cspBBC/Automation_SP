@@ -18,7 +18,10 @@ class TemplateTransformer:
         
         Args:
             csv_file: Path to keyword-driven CSV file
-            template_file: Path to generic template JSON (default: generic_template.json)
+            template_file: Path to generic template JSON (default: generic_template.json).
+                Can point at an operation-specific template file; regardless of the
+                filename the JSON must use the module/sp name as its top-level key
+                so that the loader can locate the right section.
             filter_executed: If True, only load rows where Executed='Yes'
             module_filter: Optional - only return data for specific module/SP name
             
@@ -75,7 +78,8 @@ class TemplateTransformer:
                     test_case
                 )
                 
-                populated_case['Module'] = test_case.get('operation', module_name)
+                # Module should remain the stored-procedure/module name, not the CSV "Operation" value
+                populated_case['Module'] = module_name
                 populated_case['Operation'] = test_case.get('operation', '')
                 populated_case['Test Case ID'] = test_case.get('case_id', '')
                 

@@ -99,12 +99,13 @@ def main():
                 for test_result in test_results:
                     test_case_id = test_result.get('case_id', 'unknown')
                     status = test_result.get('status', 'unknown')
+                    status_norm = str(status).lower()
                     
                     # Print to console only (detailed logging handled by pytest)
                     print(f"Test Case: {test_case_id}")
                     print(f"Status: {status}")
                     
-                    if status == 'passed':
+                    if status_norm == 'passed':
                         result_data = test_result.get('result', {})
                         if isinstance(result_data, dict):
                             chain_data = result_data.get('chain_data', {})
@@ -115,7 +116,7 @@ def main():
                                 'status': 'PASSED',
                                 'team_id': team_id
                             })
-                    elif status == 'failed':
+                    elif status_norm == 'failed':
                         error = test_result.get('error', 'Unknown error')
                         print(f"❌ FAILED - Error: {error}\n")
                         test_case_summary.append({

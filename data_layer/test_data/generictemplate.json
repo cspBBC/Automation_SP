@@ -1,6 +1,7 @@
 {
   "usp_CreateUpdateSchedulingTeam": [
     {
+      "note": "legacy generic template; operation-specific JSON files are preferred",
       "Module": "{Module}",
       "Operation": "{Operation}",
       "Test Case ID": "{Test Case ID}",

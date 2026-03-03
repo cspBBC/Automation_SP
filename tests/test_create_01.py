@@ -32,15 +32,29 @@ def created_team_id(db_transaction, request):
     all_results = execute_result.get('results', {})
     for module_name, test_results in all_results.items():
         for test_result in test_results:
-            if test_result.get('status') == 'passed':
-                # Extract from chain output - chain_data contains output_mapping results
-                result_data = test_result.get('result', {})
+            status = str(test_result.get('status', '')).lower()
+            if status == 'passed' or status == 'pas sed' or status == 'passed'.upper():
+                # Runner stores different keys depending on path; be forgiving
+                # Extract from chain output - check 'result', 'execution_context', or nested 'chain_data'
+                # 1) direct result dict with 'chain_data'
+                result_data = test_result.get('result') or {}
                 if isinstance(result_data, dict):
-                    # Check in chain_data first (output of the chain execution)
-                    chain_data = result_data.get('chain_data', {})
+                    chain_data = result_data.get('chain_data') or result_data.get('execution_context') or {}
                     tid = chain_data.get('created_team_id')
                     if tid:
                         return tid
+
+                # 2) execution_context captured at module level
+                exec_ctx = test_result.get('execution_context') or {}
+                tid = exec_ctx.get('created_team_id')
+                if tid:
+                    return tid
+
+                # 3) top-level chain_data in case the runner returns it
+                chain_top = execute_result.get('chain_data') or {}
+                tid = chain_top.get('created_team_id')
+                if tid:
+                    return tid
     
     # If no team id found, raise assertion error
     assert False, "Creation should return a valid team id"

@@ -376,8 +376,10 @@ def run_stored_procedures_from_csv(filter_executed: bool = True) -> Dict[str, An
     Scaffold Pattern:
     1. Automatically reads data_layer/test_data/keyword_driven_tests.csv
     2. Extracts unique module names (SPs) from CSV
-    3. For each module, searches for matching folder in test data
-    4. Loads template from {module_folder}/generic_template.json
+    3. For each module, identifies operations requested in CSV
+    4. For each operation attempts to load an operation-specific template
+       (ordered lookup: modules/<module>/<module>_<op>.json,
+        data_layer/test_data/<module>_<op>.json, or generic <module>.json)
     5. Executes test cases based on CSV contents
     
     Args:
@@ -438,65 +440,120 @@ def run_stored_procedures_from_csv(filter_executed: bool = True) -> Dict[str, An
             connection = get_connection()
         
         for module_name in unique_modules:
-            # Search for module-specific template file: {module_name}.json
-            test_data_base = 'data_layer/test_data'
-            template_file = os.path.join(test_data_base, f"{module_name}.json")
-            
-            # Verify template exists
-            if not os.path.exists(template_file):
-                logger.warning(f"Template not found: {template_file}")
-                logger.info(f"  Skipping module: {module_name}")
+            # Collect all requested operations for this module (respecting executed flag)
+            module_rows = csv_data.get(module_name, [])
+            ops = set()
+            for row in module_rows:
+                if filter_executed and not row.get('executed', False):
+                    continue
+                op = row.get('operation')
+                if op:
+                    ops.add(op)
+            if not ops:
+                logger.info(f"No executable operations found for module {module_name}, skipping")
                 continue
-            
-            logger.info(f"Module: {module_name}")
-            logger.info(f"  Reference Template File: {os.path.abspath(template_file)}")
-            logger.info(f"  File exists: True")
-            logger.info(f"  File size: {os.path.getsize(template_file)} bytes")
-            
-            # Step 4: Transform CSV data using discovered template
-            test_data_for_module = TemplateTransformer.load_and_transform(
-                csv_filename,  # Just filename - loader adds prefix
-                template_file=template_file,
-                filter_executed=filter_executed,
-                module_filter=module_name  # Only this module
-            )
-            
-            if not test_data_for_module or module_name not in test_data_for_module:
-                logger.info(f"  No test cases after filtering for {module_name}")
+
+            logger.info(f"Module: {module_name} (operations: {sorted(ops)})")
+            test_cases = []
+
+            # For each operation, try to load an operation-specific template first
+            for op in sorted(ops):
+                # search order: modules/<module>/<module>_<op>.json -> data_layer/test_data/<module>_<op>.json -> data_layer/test_data/<module>.json
+                test_data_base = 'data_layer/test_data'
+                module_folder = os.path.join(test_data_base, 'modules', module_name)
+                specific_template = None
+
+                candidate_paths = []
+                if os.path.isdir(module_folder):
+                    candidate_paths.append(os.path.join(module_folder, f"{module_name}_{op}.json"))
+                candidate_paths.append(os.path.join(test_data_base, f"{module_name}_{op}.json"))
+                candidate_paths.append(os.path.join(test_data_base, f"{module_name}.json"))
+
+                for path in candidate_paths:
+                    if os.path.exists(path):
+                        specific_template = path
+                        break
+
+                if not specific_template:
+                    logger.warning(f"Template not found for {module_name} operation {op} (looked in {candidate_paths})")
+                    continue
+
+                logger.info(f"  Using template: {os.path.abspath(specific_template)}")
+
+                # Step 4: Transform CSV data using discovered template
+                test_data_for_op = TemplateTransformer.load_and_transform(
+                    csv_filename,
+                    template_file=specific_template,
+                    filter_executed=filter_executed,
+                    module_filter=module_name
+                )
+
+                if not test_data_for_op or module_name not in test_data_for_op:
+                    logger.info(f"    No test cases after filtering for {module_name} / {op}")
+                    continue
+
+                # pick only cases belonging to this operation (load_and_transform sets Operation key)
+                op_cases = [c for c in test_data_for_op[module_name] if c.get('Operation') == op]
+                logger.info(f"    Loaded {len(op_cases)} case(s) for operation {op}")
+                test_cases.extend(op_cases)
+
+            if not test_cases:
+                logger.info(f"  No test cases collected for module {module_name}")
                 continue
+
+            logger.info(f"  Total test cases to execute: {len(test_cases)}\n")
             
-            test_cases = test_data_for_module[module_name]
-            logger.info(f"  Loaded {len(test_cases)} test case(s)\n")
-            
-            # Step 5: Execute test cases
+            # Step 5: Execute test cases with execution context chaining
             module_results = []
+            execution_context = {}  # Track outputs from Create for injection into Edit
+            
             for test_case in test_cases:
                 case_id = test_case.get('Test Case ID', 'unknown')
                 logger.info(f"  Executing: {case_id}")
                 
+                # Inject execution context values into test_case parameters before execution
+                if execution_context and 'chain_config' in test_case:
+                    chain_config = test_case['chain_config']
+                    if isinstance(chain_config, list):
+                        for step in chain_config:
+                            # Inject context into step parameters (used for input_mappings)
+                            step['_execution_context'] = execution_context
+                
                 try:
                     if 'chain_config' in test_case and test_case['chain_config']:
                         executor = SPChainExecutor(connection)
-                        result = executor.execute_chain(test_case['chain_config'])
+                        result = executor.execute_chain(test_case['chain_config'], execution_context=execution_context)
+                        
+                        # Extract execution context from result if available (for chaining operations)
+                        if isinstance(result, dict):
+                            if result.get('chain_data'):
+                                execution_context.update(result.get('chain_data', {}))
+                                logger.info(f"    Updated execution_context with: {result.get('chain_data', {})}")
+                        
                         # Respect executor result status: mark failed when chain reports failure
                         if isinstance(result, dict) and not result.get('success', True):
                             module_results.append({
                                 'case_id': case_id,
-                                'status': 'failed',
+                                'Operation': test_case.get('Operation'),
+                                'status': 'FAILED',
                                 'error': result.get('error'),
-                                'result': result
+                                'result': result,
+                                'execution_context': execution_context.copy()
                             })
                         else:
                             module_results.append({
                                 'case_id': case_id,
-                                'status': 'passed',
-                                'result': result
+                                'Operation': test_case.get('Operation'),
+                                'status': 'PASSED',
+                                'result': result,
+                                'execution_context': execution_context.copy()
                             })
                     else:
                         logger.warning(f"    No chain_config for {case_id}")
                         module_results.append({
                             'case_id': case_id,
-                            'status': 'skipped',
+                            'Operation': test_case.get('Operation'),
+                            'status': 'SKIPPED',
                             'error': 'No chain_config'
                         })
                 
@@ -504,7 +561,8 @@ def run_stored_procedures_from_csv(filter_executed: bool = True) -> Dict[str, An
                     logger.error(f"    Failed: {e}")
                     module_results.append({
                         'case_id': case_id,
-                        'status': 'failed',
+                        'Operation': test_case.get('Operation'),
+                        'status': 'FAILED',
                         'error': str(e)
                     })
             
@@ -512,12 +570,12 @@ def run_stored_procedures_from_csv(filter_executed: bool = True) -> Dict[str, An
         
         # Summary
         total = sum(len(v) for v in all_results.values())
-        passed = sum(1 for results in all_results.values() for r in results if r.get('status') == 'passed')
-        failed = sum(1 for results in all_results.values() for r in results if r.get('status') == 'failed')
-        skipped = sum(1 for results in all_results.values() for r in results if r.get('status') == 'skipped')
+        passed = sum(1 for results in all_results.values() for r in results if r.get('status') == 'PASSED')
+        failed = sum(1 for results in all_results.values() for r in results if r.get('status') == 'FAILED')
+        skipped = sum(1 for results in all_results.values() for r in results if r.get('status') == 'SKIPPED')
         
         logger.info(f"\n{'='*80}")
-        logger.info(f"Scaffold Execution Summary:")
+        logger.info(f"Test Execution Summary:")
         logger.info(f"  Total: {total}, Passed: {passed}, Failed: {failed}, Skipped: {skipped}")
         logger.info(f"{'='*80}\n")
         

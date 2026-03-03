@@ -32,20 +32,27 @@ class SPChainExecutor:
         if self.logger_callback:
             self.logger_callback(msg)
     
-    def execute_chain(self, chain_config: List[Dict[str, Any]]) -> Dict[str, Any]:
+    def execute_chain(self, chain_config: List[Dict[str, Any]], execution_context: Dict[str, Any] = None) -> Dict[str, Any]:
         """Execute chained SPs with smart parameter inheritance.
         
         - Step 1: Uses full parameters → stored as base
         - Step 2+: Inherits from Step 1, overrides only changed params
         - Stops on first failure and reports error clearly
+        - Supports execution_context chaining for dependent operations
         
         Args:
             chain_config: List of step configurations
+            execution_context: Optional dict with values from previous operations (e.g., created_team_id)
             
         Returns:
             Result dictionary with success flag and data
         """
         try:
+            # Initialize chain_data with execution_context (for operation chaining)
+            if execution_context:
+                self.chain_data = execution_context.copy()
+                logger.info(f"Initialized chain_data with execution_context: {self.chain_data}")
+            
             for idx, step_config in enumerate(chain_config):
                 step_num = step_config.get("step", idx + 1)
                 sp_name = step_config["sp_name"]
