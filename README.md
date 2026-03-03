@@ -261,6 +261,110 @@ When you add a new module, just:
 
 ---
 
+## Dual-Execution Pattern: Independent Tests + Error Scenarios
+
+The framework supports two execution modes:
+
+### 1. Independent Test Execution (Isolated Transactions)
+Each CSV test case runs in its own transaction context with no dependencies:
+```bash
+python -m pytest tests/test_create_01.py::test_validate_created_team -v
+```
+
+**Behavior:**
+- Each test case gets a separate transaction
+- Test cases run in isolation (no side effects between tests)
+- Perfect for testing success paths and variations
+
+**Example:** `Create_New_Schd_Team_01` (grwp11) and `Create_New_Schd_Team_04` (grwp14) both run independently.
+
+### 2. Scenario Testing (Shared Transactions)
+Some scenarios require multiple test cases in the **same transaction** to test constraint violations or dependencies. Example: duplicate team name errors.
+
+**How it works:**
+- Separate test function runs ALL test cases WITHOUT filtering (no `filter_test_name`)
+- Both Create cases execute in the **same transaction**
+- First succeeds, second fails with "already exists" error
+
+**Example in `tests/test_create_01.py`:**
+
+```python
+@pytest.fixture
+def duplicate_scenario(db_transaction):
+    """Run Create cases in SAME transaction to test duplicate detection."""
+    module_name = 'usp_CreateUpdateSchedulingTeam'
+    verify_preseed_for_module(module_name)
+    
+    # Execute ALL test cases WITHOUT filter - both in same transaction
+    result = run_stored_procedures_from_csv()
+    return result.get('results', {})
+
+def test_duplicate_team_name_rejected(duplicate_scenario):
+    """Verify SP correctly rejects duplicate team name."""
+    all_results = duplicate_scenario
+    
+    # Extract Create operations
+    module_results = list(all_results.values())[0]
+    create_results = [r for r in module_results if r.get('Operation') == 'Create']
+    
+    # First create succeeds
+    assert create_results[0].get('status') == 'PASSED'
+    
+    # Second create fails with duplicate error
+    assert create_results[1].get('status') == 'FAILED'
+    assert 'already exists' in create_results[1].get('message', '').lower()
+```
+
+**In CSV (`data_layer/test_data/keyword_driven_tests.csv`):**
+```
+usp_CreateUpdateSchedulingTeam,Create,Create_New_Schd_Team_01,Yes,...grwp11...
+usp_CreateUpdateSchedulingTeam,Create,Create_Duplicate_Team_01,Yes,...grwp11...  ← Same name
+usp_CreateUpdateSchedulingTeam,Edit,Edit_Schd_Team_01,Yes,...grwp11...
+```
+
+**Note:** The duplicate case (`Create_Duplicate_Team_01`) is excluded from independent parametrized tests to prevent false passes:
+```python
+CREATE_TEST_CASES = [
+    tc for tc in get_test_case_ids_by_operation('Create') 
+    if tc != 'Create_Duplicate_Team_01'  # Only in scenario test
+]
+```
+
+### When to Use Each Mode
+
+| Scenario | Mode | Reason |
+|----------|------|--------|
+| Testing happy path | Independent | Each case is isolated, can run in any order |
+| Testing variations (different inputs, different Active status) | Independent | Cases don't affect each other |
+| Testing duplicate constraints | Scenario | Need both cases in same transaction |
+| Testing missing reference error | Scenario | Need to run operation that references non-existent ID |
+| Testing access control | Scenario | May need multi-user, multi-case flow |
+
+### Adding a New Error Scenario
+
+1. **Add test cases to CSV** with inputs that trigger the error (e.g., duplicate team name)
+2. **Create a fixture** that runs cases without filtering (shared transaction)
+3. **Create a test function** that validates both success and failure outcomes
+4. **Exclude error cases from independent tests** using list comprehension
+
+Example:
+```python
+# Exclude all error-scenario test cases from independent execution
+CREATE_TEST_CASES = [
+    tc for tc in get_test_case_ids_by_operation('Create') 
+    if tc not in ['Create_Duplicate_Team_01', 'Create_Invalid_Division_01']
+]
+
+# Add scenario tests for each error condition
+def test_duplicate_team_name_rejected(duplicate_scenario):
+    # Validate duplicate error
+
+def test_invalid_division_rejected(invalid_division_scenario):
+    # Validate division error
+```
+
+---
+
 ## Developer notes & conventions
 
 - Status fields returned by the runner are canonical uppercase strings: `PASSED`, `FAILED`, `SKIPPED`.
@@ -306,17 +410,30 @@ When you add a new module, just:
   - Removed unnecessary variable tracking in return values
   - All changes maintain 100% backward compatibility
 
-
+- **Error Scenario Testing (Dual Execution):** Implemented a dual-execution pattern to handle both independent tests AND error scenarios:
+  - **Independent Mode:** Each test case runs in isolated transaction (perfect for happy path + variations). Uses `filter_test_name` to isolate. Parametrized tests exclude error cases.
+  - **Scenario Mode:** New test cases run together in **shared transaction** to test constraint violations (e.g., duplicate team names). Uses NO filter so all cases run sequentially in same transaction.
+  - **Example:** `test_duplicate_team_name_rejected` validates that SP rejects duplicate team name when both Create operations run in same transaction
+  - **CSV Integration:** Duplicate cases remain in CSV but excluded from independent parametrization: `CREATE_TEST_CASES = [tc for tc in get_test_case_ids_by_operation('Create') if tc != 'Create_Duplicate_Team_01']`
+  - **Extensible Pattern:** Can be reused for other constraints (missing references, access control, etc.)
 
 - **Focused test created:** A minimal `tests/test_edit_01.py` flow runs Create → Edit and validates the Edit and history entries.
+
 - **Validator logging:** Validators in `validation_layer/` were iterated from `print()` to Python `logging` calls so output appears in per-test `execution.log`. A transient race (`I/O operation on closed file`) was diagnosed and addressed during the session.
+
 - **Logging race resolved:** Multiple mitigations were tried (queue-based logging, a print-based lightweight logger, and careful fixture teardown). Current README still recommends attaching a root handler per test and avoiding premature handler closure.
+
 - **History normalization:** `getSchdGrpHistory` was enhanced to add an `operation` key (heuristic: parse `History` text then fallback to `HistoryType`/`HistorySubType`) so tests can reliably filter history rows by operation (e.g. `edit`).
+
 - **Fixture robustness:** `tests/test_create_01.py` fixture `created_team_id` was made resilient to several possible runner result shapes so downstream Edit steps reliably receive the created ID.
+
 - **CSV runner fix:** `run_csv_tests.py` was patched to handle `status` case-insensitively; this fixed incorrect `⏭️  SKIPPED` outputs when the runner emitted uppercase statuses (`PASSED`/`FAILED`).
-- **Test results:** After fixes, focused and full pytest runs reported passing tests (final observed: 2 passed, 0 failed, 0 skipped) and the standalone CSV runner showed both cases as PASSED.
 
-
+- **Test results:** After all improvements, tests now demonstrate:
+  - ✅ 2 independent Create tests pass (isolated transactions)
+  - ✅ 1 duplicate scenario test passes (shared transaction, validates error)
+  - ✅ 1 Edit test passes (Create→Edit workflow)
+  - **Total: 4 passed, 0 failed**
 
 ### Framework Scalability
 
@@ -325,5 +442,6 @@ The framework now supports:
 - **Multiple modules** - extend preseed mapping, no code changes to test logic
 - **Multiple operations** - Create, Edit, Delete, etc. use same pattern
 - **Independent execution** - each test case runs in isolated transaction context
+- **Error scenarios** - dual-execution pattern tests both success and failures
 - **Easy debugging** - run individual test cases by name without affecting others
 

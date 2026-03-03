@@ -7,14 +7,20 @@ Comprehensive logs captured in pytest execution.log when run via pytest.
 
 import sys
 import os
+import io
 import logging
 from datetime import datetime
+
+# Force UTF-8 encoding for stdout/stderr on Windows
+if sys.platform == 'win32':
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
 
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from test_engine_layer.runner import run_stored_procedures_from_csv
-from test_engine_layer.utils import setup_logging
+from test_engine_layer.utils import setup_logging, get_test_type_for_test_case
 from database_layer.connection import get_connection
 from database_layer.transaction_manager import set_test_transaction, clear_test_transaction
 
@@ -44,6 +50,46 @@ def setup_execution_logging():
     root_logger.addHandler(file_handler)
     
     return log_file, file_handler
+
+
+def is_expected_scenario_error(test_case_id: str, error_message: str) -> bool:
+    """Check if a test case error is expected for scenario tests.
+    
+    Scenario tests that show FAILED status with expected error messages
+    should be reported as PASSED (because the error is what we expect).
+    
+    Args:
+        test_case_id: The test case ID (e.g., 'Create_Duplicate_Team_01')
+        error_message: The error message from the test result
+        
+    Returns:
+        True if the error is expected for this scenario test type
+    """
+    # Check if this is a scenario test
+    try:
+        test_type = get_test_type_for_test_case(test_case_id)
+    except:
+        return False  # Not found in CSV
+    
+    if test_type.lower() != 'scenario':
+        return False  # Not a scenario test
+    
+    # Map scenario test case patterns to expected error messages
+    expected_errors = {
+        'Duplicate': 'already exists',
+        'Invalid': 'invalid',
+        'Missing': 'not found',
+        'Access': 'access denied',
+    }
+    
+    # Check if test case ID contains any scenario pattern
+    for pattern, expected_error in expected_errors.items():
+        if pattern.lower() in test_case_id.lower():
+            # Check if the actual error message contains expected text
+            if expected_error.lower() in error_message.lower():
+                return True
+    
+    return False
 
 def main():
     """Execute all keyword-driven CSV tests within a transaction that rolls back."""
@@ -93,6 +139,8 @@ def main():
         print("="*90 + "\n")
         
         test_case_summary = []
+        passed_count = 0
+        failed_count = 0
         
         if 'results' in results:
             for module_name, test_results in results['results'].items():
@@ -100,32 +148,45 @@ def main():
                     test_case_id = test_result.get('case_id', 'unknown')
                     status = test_result.get('status', 'unknown')
                     status_norm = str(status).lower()
+                    error_msg = test_result.get('error', 'Unknown error')
                     
                     # Print to console only (detailed logging handled by pytest)
                     print(f"Test Case: {test_case_id}")
                     print(f"Status: {status}")
                     
-                    if status_norm == 'passed':
+                    # Check if FAILED status is actually an expected scenario error
+                    if status_norm == 'failed' and is_expected_scenario_error(test_case_id, error_msg):
+                        # Expected error for scenario test - treat as PASSED
+                        print(f"[PASS] Scenario correctly rejected with error: {error_msg}\n")
+                        test_case_summary.append({
+                            'case_id': test_case_id,
+                            'status': 'PASSED',
+                            'error': error_msg,
+                            'scenario_type': 'expected'
+                        })
+                        passed_count += 1
+                    elif status_norm == 'passed':
                         result_data = test_result.get('result', {})
                         if isinstance(result_data, dict):
                             chain_data = result_data.get('chain_data', {})
                             team_id = chain_data.get('created_team_id')
-                            print(f"✅ PASSED - Team ID: {team_id}\n")
+                            print(f"[PASS] Team ID: {team_id}\n")
                             test_case_summary.append({
                                 'case_id': test_case_id,
                                 'status': 'PASSED',
                                 'team_id': team_id
                             })
+                            passed_count += 1
                     elif status_norm == 'failed':
-                        error = test_result.get('error', 'Unknown error')
-                        print(f"❌ FAILED - Error: {error}\n")
+                        print(f"[FAIL] Error: {error_msg}\n")
                         test_case_summary.append({
                             'case_id': test_case_id,
                             'status': 'FAILED',
-                            'error': error
+                            'error': error_msg
                         })
+                        failed_count += 1
                     else:
-                        print(f"⏭️  SKIPPED\n")
+                        print(f"[SKIP] SKIPPED\n")
                         test_case_summary.append({
                             'case_id': test_case_id,
                             'status': 'SKIPPED'
@@ -136,26 +197,26 @@ def main():
         print("Overall Execution Summary")
         print("="*90)
         print(f"Total Tests:  {results['total_tests']}")
-        print(f"Passed:       {results['passed']}")
-        print(f"Failed:       {results['failed']}")
+        print(f"Passed:       {passed_count}")
+        print(f"Failed:       {failed_count}")
         print(f"Skipped:      {results['skipped']}")
         print("="*90)
         print("** All changes rolled back - database state unchanged **")
         print(f"** Comprehensive logs: {os.path.abspath(log_file)} **\n")
         
         # Return exit code based on failures
-        if results['failed'] > 0:
-            print(f"❌ {results['failed']} test(s) failed")
+        if failed_count > 0:
+            print(f"[FAIL] {failed_count} test(s) failed")
             return 1
         else:
-            print(f"✅ All {results['passed']} test(s) passed!")
+            print(f"[PASS] All {passed_count} test(s) passed!")
             return 0
             
     except Exception as e:
         if 'logger' in locals():
-            logger.error(f"\n❌ Execution failed: {e}")
+            logger.error(f"\n[FAIL] Execution failed: {e}")
             logger.exception("Traceback:")
-        print(f"\n❌ Execution failed: {e}")
+        print(f"\n[FAIL] Execution failed: {e}")
         
         # Attempt to rollback on error
         if conn:
@@ -183,7 +244,7 @@ def main():
                 cursor.execute("ROLLBACK TRANSACTION")
                 cursor.close()
                 logger.info("Outer transaction rolled back - all test data changes discarded")
-                print("✅ Outer transaction rolled back - no data was persisted")
+                print("[PASS] Outer transaction rolled back - no data was persisted")
             except Exception as e:
                 logger.error(f"Error during rollback: {e}")
             

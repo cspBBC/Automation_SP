@@ -15,8 +15,14 @@ EDIT_TEST_CASES = get_test_case_ids_by_operation('Edit')
 
 
 @pytest.fixture
-def create_then_edit_result(db_transaction, request):
-    """Fixture that executes Create first, then Edit independently."""
+def create_then_edit_result(db_transaction, output_dir, request):
+    """Fixture that executes Create first, then Edit independently.
+    
+    Args:
+        db_transaction: Database transaction context for test isolation
+        output_dir: Output directory for test logs and artifacts
+        request: Pytest request object for parametrization
+    """
     # Verify preseed for the module (both Create and Edit use same module)
     create_cases = get_test_case_ids_by_operation('Create')
     if create_cases:

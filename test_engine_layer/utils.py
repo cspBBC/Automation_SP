@@ -66,22 +66,25 @@ def setup_logging():
     return logger
 
 
-def get_test_case_ids_by_operation(operation: str) -> List[str]:
+def get_test_case_ids_by_operation(operation: str, test_type: str = None) -> List[str]:
     """Load test case IDs from CSV filtered by operation type and execution status.
     
     Filters the keyword-driven CSV to return only test case IDs where:
     - The Operation field matches the specified operation (case-insensitive)
     - The Executed field is 'Yes' (case-insensitive)
+    - The Test Type field matches the specified type (optional, case-insensitive)
     
     Args:
         operation: Operation type to filter by (e.g., 'Create', 'Edit', 'Delete')
+        test_type: Optional test type to filter by (e.g., 'independent', 'scenario', 'workflow')
         
     Returns:
         List of test case IDs matching the criteria, in CSV order
         
     Example:
         >>> create_tests = get_test_case_ids_by_operation('Create')
-        >>> edit_tests = get_test_case_ids_by_operation('Edit')
+        >>> independent_tests = get_test_case_ids_by_operation('Create', test_type='independent')
+        >>> scenario_tests = get_test_case_ids_by_operation('Create', test_type='scenario')
     """
     csv_path = Path(__file__).parent.parent / 'data_layer' / 'test_data' / 'keyword_driven_tests.csv'
     test_cases = []
@@ -92,10 +95,13 @@ def get_test_case_ids_by_operation(operation: str) -> List[str]:
             test_name = row.get('Test Case ID', '').strip()
             op = row.get('Operation', '').strip()
             executed = row.get('Executed', '').strip().lower() == 'yes'
+            tt = row.get('Test Type', '').strip()
             
             # Include tests matching operation and executed status
             if op.lower() == operation.lower() and executed:
-                test_cases.append(test_name)
+                # If test_type specified, also check it
+                if test_type is None or tt.lower() == test_type.lower():
+                    test_cases.append(test_name)
     
     return test_cases
 
@@ -140,6 +146,38 @@ def get_module_for_test_case(test_case_id: str) -> str:
                 return row.get('Module', '').strip()
     
     raise ValueError(f"Test case '{test_case_id}' not found in CSV")
+
+
+def get_test_type_for_test_case(test_case_id: str) -> str:
+    """Get the test type for a given test case ID.
+    
+    Looks up the test case in the CSV and returns its Test Type.
+    Test types determine execution mode:
+    - 'independent': Test case runs in isolated transaction with filter_test_name
+    - 'scenario': Test case runs in shared transaction with other scenario tests
+    - 'workflow': Test case part of multi-step workflow (Create→Edit, etc.)
+    
+    Args:
+        test_case_id: Test case ID to look up
+        
+    Returns:
+        Test type for the test case (default: 'independent')
+        
+    Example:
+        >>> test_type = get_test_type_for_test_case('Create_Duplicate_Team_01')
+        >>> # Returns: 'scenario'
+    """
+    csv_path = Path(__file__).parent.parent / 'data_layer' / 'test_data' / 'keyword_driven_tests.csv'
+    
+    with open(csv_path, 'r', encoding='utf-8') as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            if row.get('Test Case ID', '').strip() == test_case_id:
+                test_type = row.get('Test Type', 'independent').strip()
+                return test_type if test_type else 'independent'
+    
+    # Default to 'independent' if test case not found
+    return 'independent'
 
 
 def verify_preseed_for_module(module_name: str, request=None) -> bool:
