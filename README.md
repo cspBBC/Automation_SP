@@ -287,19 +287,8 @@ When you add a new module, just:
 - Validators for scheduling teams: `validation_layer/schGroup_validator.py`
 - Pytest fixtures and per-test logging: `tests/conftest.py`
 
----
 
-If you want, I can also:
-- Generate a smaller `DEVELOPER.md` with step-by-step instructions for adding a new SP module and template.
-- Create example templates or demonstrate adding a new CSV row and template.
-
----
-
-## Session Summary (2026-03-03)
-
-This project has been significantly enhanced during a recent development session. Key outcomes and architectural improvements are captured here for developer context:
-
-### Architecture Enhancements
+## Summary
 
 - **Independent Test Execution:** Refactored test fixtures to use pytest parametrization with indirect fixtures. Each CSV test case now runs in a completely isolated database transaction context with no dependencies on other test cases. Tests can be added to CSV without code modifications and run individually by name.
 
@@ -317,7 +306,7 @@ This project has been significantly enhanced during a recent development session
   - Removed unnecessary variable tracking in return values
   - All changes maintain 100% backward compatibility
 
-### Previous Session Notes (Earlier 2026-03-03)
+
 
 - **Focused test created:** A minimal `tests/test_edit_01.py` flow runs Create → Edit and validates the Edit and history entries.
 - **Validator logging:** Validators in `validation_layer/` were iterated from `print()` to Python `logging` calls so output appears in per-test `execution.log`. A transient race (`I/O operation on closed file`) was diagnosed and addressed during the session.
@@ -327,16 +316,7 @@ This project has been significantly enhanced during a recent development session
 - **CSV runner fix:** `run_csv_tests.py` was patched to handle `status` case-insensitively; this fixed incorrect `⏭️  SKIPPED` outputs when the runner emitted uppercase statuses (`PASSED`/`FAILED`).
 - **Test results:** After fixes, focused and full pytest runs reported passing tests (final observed: 2 passed, 0 failed, 0 skipped) and the standalone CSV runner showed both cases as PASSED.
 
-### Test Results
 
-Current test status (all passing):
-```bash
-tests/test_create_01.py::test_validate_created_team[Create_New_Schd_Team_04] PASSED
-tests/test_edit_01.py::test_edit_updates_team_successfully[Update_Schd_Team_01] PASSED
-============================== 2 passed ==============================
-```
-
-All independent test cases execute successfully with zero cross-test dependencies.
 
 ### Framework Scalability
 
