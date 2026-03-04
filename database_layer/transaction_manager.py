@@ -3,7 +3,7 @@
 import threading
 import logging
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger('sp_validation')
 
 # Thread-local storage for test-level transactions
 _test_transaction = threading.local()

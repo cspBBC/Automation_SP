@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Dict, Any, List
 from abc import ABC, abstractmethod
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger('sp_validation')
 
 
 class BaseLoader(ABC):

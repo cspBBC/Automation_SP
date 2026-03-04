@@ -7,7 +7,7 @@ import logging
 from typing import Dict, Any, List
 from .base_loader import BaseLoader
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger('sp_validation')
 
 
 class KeywordDrivenCSVLoader(BaseLoader):

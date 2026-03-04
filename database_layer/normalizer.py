@@ -5,7 +5,7 @@ import logging
 from typing import Any, Dict, Optional
 import re
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger('sp_validation')
 
 
 def _looks_like_date(value: str) -> bool:

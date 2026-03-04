@@ -4,7 +4,7 @@ from database_layer.connection import DBSession
 from typing import Any, Dict, List
 import logging
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger('sp_validation')
 
 
 def execute_query(sql: str, params: List = None) -> List[Dict[str, Any]]:

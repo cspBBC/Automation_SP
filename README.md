@@ -599,6 +599,549 @@ pytest tests/ -n auto -v
 # Run with detailed logging
 pytest tests/ -v -s
 
+---
+
+## Section 2: Data Loading Flow - How Test Data Gets Read
+
+### Function Call Chain: `get_test_case_ids_by_operation('Create')`
+
+Let's trace **exactly** how test data is loaded when pytest calls:
+```python
+CREATE_TEST_CASES = [tc for tc in get_test_case_ids_by_operation('Create') if 'Duplicate' not in tc]
+```
+
+---
+
+### **Step 1: Call Function in [test_engine_layer/utils.py](test_engine_layer/utils.py#L78)**
+
+```python
+def get_test_case_ids_by_operation(operation: str, data_file: str = None) -> List[str]:
+    """
+    Input:
+    ──────
+    operation = 'Create' (string)
+    data_file = None (uses default from config)
+    
+    Output:
+    ───────
+    ['Create_New_Schd_Team_01']  (list of test case IDs)
+    """
+```
+
+**What happens inside:**
+- Line 1: Function receives `operation='Create'`
+- Line 2: Initializes empty list `test_cases = []`
+- Line 3: Calls `load_test_data(data_file)` ← **THIS IS THE KEY CALL**
+
+---
+
+### **Step 2: Call `load_test_data()` - File Discovery**
+
+**File: [test_engine_layer/utils.py](test_engine_layer/utils.py#L63)**
+
+```python
+def load_test_data(data_file: str = None) -> Dict:
+    """Load test data from CSV/Excel/JSON file.
+    
+    Args:
+        data_file: Optional data file path. Defaults to configured file.
+        
+    Returns:
+        Dict of {module_name: [test_case_rows]}
+    """
+    from data_loader_factory import TestDataLoader
+    
+    if data_file is None:
+        data_file = DataConfig.DEFAULT_TEST_DATA_FILE
+        # DEFAULT_TEST_DATA_FILE = 'keyword_driven_tests.csv'
+    
+    return TestDataLoader.load(data_file)
+    # ↑ Calls the factory loader
+```
+
+**Process:**
+```
+Input: data_file = None
+  ↓
+Load from config: DEFAULT_TEST_DATA_FILE = 'keyword_driven_tests.csv'
+  ↓
+Call: TestDataLoader.load('keyword_driven_tests.csv')
+```
+
+---
+
+### **Step 3: TestDataLoader - Smart Format Detection**
+
+**File: [data_loader_factory/factory.py](data_loader_factory/factory.py)**
+
+```python
+class TestDataLoader:
+    """
+    Universal test data loader for various formats.
+    
+    Auto-detects format from file extension and uses the appropriate loader.
+    Supports JSON, CSV (with automatic schema detection), and Excel (XLSX/XLS) formats.
+    """
+    
+    # ┌─────────────────────────────────────────────────────┐
+    # │  _LOADERS Dictionary - Maps Extension to Loader    │
+    # └─────────────────────────────────────────────────────┘
+    
+    _LOADERS = {
+        '.json': JSONLoader,
+        '.csv': CSVLoader,
+        '.xlsx': ExcelLoader,
+        '.xls': ExcelLoader,
+    }
+    
+    @staticmethod
+    def load(file_path: str, format: str = None, loader_type: str = None) -> Dict[str, Any]:
+        """
+        Input:
+        ──────
+        file_path = 'keyword_driven_tests.csv'
+        format = None (auto-detect)
+        loader_type = None (deprecated, kept for backward compatibility)
+        
+        Output:
+        ───────
+        {
+            'usp_CreateUpdateSchedulingTeam': [
+                {
+                    'case_id': 'Create_New_Schd_Team_01',
+                    'operation': 'Create',
+                    'executed': True,
+                    'module': 'usp_CreateUpdateSchedulingTeam',
+                    ...
+                },
+                {
+                    'case_id': 'Create_Duplicate_Team_01',
+                    'operation': 'Create',
+                    'executed': True,
+                    ...
+                },
+                ...
+            ]
+        }
+        """
+```
+
+**What `@staticmethod` means:**
+```
+@staticmethod
+def load(file_path: str) -> Dict:
+    pass
+
+┌──────────────────────────────────────────────────┐
+│ @staticmethod MEANS:                             │
+│                                                   │
+│ 1. NOT a class method                            │
+│ 2. NOT an instance method                        │
+│ 3. CAN be called without creating an instance   │
+│ 4. NO access to 'self' or 'cls'                 │
+│ 5. PURE FUNCTION inside a class                 │
+│                                                   │
+│ Usage:                                           │
+│ ✅ TestDataLoader.load(file)     [Class name]   │
+│ ❌ obj.load(file)               [Need instance] │
+│ ❌ self.load(file)              [Inside class]  │
+└──────────────────────────────────────────────────┘
+```
+
+**Process inside TestDataLoader.load():**
+
+```python
+# Line 1: Detect file extension
+if format:
+    # Explicit format provided
+    ext = f".{format.lower()}"
+else:
+    # Auto-detect from file path
+    ext = os.path.splitext(file_path)[1].lower()
+    # For 'keyword_driven_tests.csv':
+    # ext = '.csv'
+
+# Line 2: Get the appropriate loader from _LOADERS
+loader_class = _LOADERS.get(ext)
+
+# For '.csv':
+# loader_class = CSVLoader
+
+# Line 3: Call the loader's load() method
+return loader_class.load(file_path)
+
+# Calls: CSVLoader.load('keyword_driven_tests.csv')
+```
+
+---
+
+### **Step 4: CSVLoader - File Reading & Schema Detection**
+
+**File: [data_loader_factory/loaders/csv_loader.py](data_loader_factory/loaders/csv_loader.py)**
+
+```python
+class CSVLoader(BaseLoader):
+    """Load test data from CSV files with automatic schema detection.
+    
+    Auto-detects schema and supports both:
+    - Keyword-driven format (Module/Operation/Test Case ID/etc.)
+    - Generic format (sp_name)
+    """
+    
+    @staticmethod
+    def load(file_path: str) -> Dict[str, Any]:
+        """
+        Input:
+        ──────
+        file_path = 'keyword_driven_tests.csv'
+        """
+        
+        # Step 4a: Locate the file
+        if not os.path.isabs(file_path):
+            # Build absolute path from project root
+            project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            #                  ↑ data_loader_factory
+            #                        ↑ sp_validation
+            
+            file_path = os.path.join(project_root, file_path)
+            # Result: C:\sp_validation\keyword_driven_tests.csv
+        
+        # Step 4b: Verify file exists
+        if not os.path.isfile(file_path):
+            raise FileNotFoundError(f"Test data file not found: {file_path}")
+        
+        # Step 4c: Read CSV file
+        logger.info(f"Using CSVLoader for: {file_path}")
+        logger.info(f"Loading CSV test data from: {file_path}")
+        
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                csv_reader = csv.DictReader(f)
+                # DictReader uses first row (headers) as keys
+                # Headers: Module, Operation, Test Case ID, Executed, test_description, test_parameters
+                
+                rows = list(csv_reader)
+                # rows = [
+                #     {'Module': 'usp_CreateUpdateSchedulingTeam',
+                #      'Operation': 'Create',
+                #      'Test Case ID': 'Create_New_Schd_Team_01',
+                #      'Executed': 'yes',
+                #      'test_description': 'Create_Team_With_Default_Permissions',
+                #      'test_parameters': '{"schedulingTeamName":"...", ...}'},
+                #     {'Module': 'usp_CreateUpdateSchedulingTeam',
+                #      'Operation': 'Create',
+                #      'Test Case ID': 'Create_Duplicate_Team_01',
+                #      'Executed': 'yes',
+                #      ...},
+                #     ...
+                # ]
+        
+        # Step 4d: Auto-detect schema
+        schema_type = _detect_schema(rows)
+        # schema_type = 'keyword-driven'
+        
+        # Step 4e: Transform to standard format
+        if schema_type == 'keyword-driven':
+            data = _transform_keyword_driven(rows)
+        else:
+            data = _transform_generic(rows)
+        
+        logger.info(f"Detected schema: {schema_type}")
+        logger.info(f"Successfully loaded test data from {file_path}")
+        
+        return data
+        # Result: 
+        # {
+        #     'usp_CreateUpdateSchedulingTeam': [
+        #         {
+        #             'case_id': 'Create_New_Schd_Team_01',
+        #             'operation': 'Create',
+        #             'executed': True,  [CONVERTED from 'yes']
+        #             'module': 'usp_CreateUpdateSchedulingTeam',
+        #             'description': 'Create_Team_With_Default_Permissions',
+        #             'parameters': {...}
+        #         },
+        #         ...
+        #     ]
+        # }
+```
+
+**Inside _transform_keyword_driven():**
+
+```python
+def _transform_keyword_driven(rows):
+    """
+    Transform keyword-driven CSV rows to standard format.
+    
+    Input row (from CSV):
+    ────────────────────
+    {
+        'Module': 'usp_CreateUpdateSchedulingTeam',
+        'Operation': 'Create',
+        'Test Case ID': 'Create_New_Schd_Team_01',
+        'Executed': 'yes',
+        'test_description': 'Create_Team_With_Default_Permissions',
+        'test_parameters': '{"schedulingTeamName":"...", ...}'
+    }
+    
+    Output row (standardized):
+    ──────────────────────────
+    {
+        'case_id': 'Create_New_Schd_Team_01',
+        'operation': 'Create',
+        'module': 'usp_CreateUpdateSchedulingTeam',
+        'executed': True,  [STRING 'yes' → BOOLEAN True]
+        'description': 'Create_Team_With_Default_Permissions',
+        'parameters': {'schedulingTeamName': '...', ...}  [JSON STRING → DICT]
+    }
+    """
+    
+    data = {}
+    
+    for row in rows:
+        module = row.get('Module', '').strip()
+        
+        # Create module entry if needed
+        if module not in data:
+            data[module] = []
+        
+        # Parse parameters JSON
+        params_str = row.get('test_parameters', '{}')
+        try:
+            parameters = json.loads(params_str)
+        except json.JSONDecodeError:
+            parameters = {}
+        
+        # Convert 'Executed' string to boolean
+        executed_str = row.get('Executed', 'no').strip().lower()
+        executed = executed_str == 'yes'
+        
+        # Build standardized row
+        transformed_row = {
+            'case_id': row.get('Test Case ID', '').strip(),
+            'operation': row.get('Operation', '').strip(),
+            'module': module,
+            'executed': executed,
+            'description': row.get('test_description', ''),
+            'parameters': parameters
+        }
+        
+        data[module].append(transformed_row)
+    
+    return data
+```
+
+---
+
+### **Step 5: Back to get_test_case_ids_by_operation() - Filter Results**
+
+**Back in [test_engine_layer/utils.py](test_engine_layer/utils.py#L78)**
+
+```python
+def get_test_case_ids_by_operation(operation: str, data_file: str = None) -> List[str]:
+    """
+    After Step 4, we have loaded data dictionary
+    """
+    
+    # Step 5a: Load data (Steps 2-4)
+    test_data = load_test_data(data_file)
+    # Result:
+    # {
+    #     'usp_CreateUpdateSchedulingTeam': [
+    #         {'case_id': 'Create_New_Schd_Team_01', 'operation': 'Create', 'executed': True, ...},
+    #         {'case_id': 'Create_Duplicate_Team_01', 'operation': 'Create', 'executed': True, ...},
+    #         {'case_id': 'Create_New_Schd_Team_02', 'operation': 'Create', 'executed': False, ...},
+    #         {'case_id': 'Update_Schd_Team_02', 'operation': 'Edit', 'executed': False, ...}
+    #     ]
+    # }
+    
+    # Step 5b: Initialize result list
+    test_cases = []
+    
+    # Step 5c: Iterate through all modules
+    for module_name, cases in test_data.items():
+        # First iteration: module_name = 'usp_CreateUpdateSchedulingTeam'
+        # cases = [all rows for that module]
+        
+        # Step 5d: Iterate through cases in this module
+        for row in cases:
+            # Iteration 1: row = {'case_id': 'Create_New_Schd_Team_01', 'operation': 'Create', 'executed': True, ...}
+            # Iteration 2: row = {'case_id': 'Create_Duplicate_Team_01', 'operation': 'Create', 'executed': True, ...}
+            # Iteration 3: row = {'case_id': 'Create_New_Schd_Team_02', 'operation': 'Create', 'executed': False, ...}
+            # Iteration 4: row = {'case_id': 'Update_Schd_Team_02', 'operation': 'Edit', 'executed': False, ...}
+            
+            # Step 5e: Extract fields from row
+            test_name = row.get('case_id', '').strip()
+            op = row.get('operation', '').strip()
+            executed_raw = row.get('executed', False)
+            
+            # Step 5f: Convert string to boolean (if needed)
+            if isinstance(executed_raw, str):
+                executed = executed_raw.lower() == 'true'
+            else:
+                executed = bool(executed_raw)
+            
+            # Step 5g: Check if matches criteria
+            if op.lower() == operation.lower() and executed:
+                # For operation='Create' and executed=True:
+                # ✅ Row 1: 'Create' == 'Create' ✓ and True ✓ → ADD 'Create_New_Schd_Team_01'
+                # ✅ Row 2: 'Create' == 'Create' ✓ and True ✓ → ADD 'Create_Duplicate_Team_01'
+                # ❌ Row 3: 'Create' == 'Create' ✓ but False ✗ → SKIP
+                # ❌ Row 4: 'Edit' != 'Create' ✗ → SKIP
+                
+                test_cases.append(test_name)
+    
+    # Step 5h: Return filtered list
+    return test_cases
+    # Result: ['Create_New_Schd_Team_01', 'Create_Duplicate_Team_01']
+```
+
+---
+
+### **Step 6: Back in [tests/test_create_01.py](tests/test_create_01.py#L12)**
+
+```python
+# Line 12: Filter out Duplicate tests
+CREATE_TEST_CASES = [tc for tc in get_test_case_ids_by_operation('Create') if 'Duplicate' not in tc]
+
+# Step 1: Call get_test_case_ids_by_operation('Create')
+#         Output: ['Create_New_Schd_Team_01', 'Create_Duplicate_Team_01']
+
+# Step 2: Filter with list comprehension [tc ... if 'Duplicate' not in tc]
+#         'Create_New_Schd_Team_01': 'Duplicate' not in string? ✅ YES → KEEP
+#         'Create_Duplicate_Team_01': 'Duplicate' not in string? ❌ NO → SKIP
+
+# Final result: ['Create_New_Schd_Team_01']
+
+# Step 3: pytest uses this list for parametrization
+@pytest.mark.parametrize("test_case_id", CREATE_TEST_CASES, ids=CREATE_TEST_CASES)
+# Runs test_create_team() once with test_case_id='Create_New_Schd_Team_01'
+```
+
+---
+
+## Data Loading Architecture Diagram
+
+```
+pytest discovers test_create_01.py
+    ↓
+Line 12: CREATE_TEST_CASES = get_test_case_ids_by_operation('Create')
+    ↓
+[test_engine_layer/utils.py] get_test_case_ids_by_operation('Create')
+    │
+    ├─→ Call: load_test_data(None)
+    │       ↓
+    │   [test_engine_layer/utils.py] load_test_data(None)
+    │       └─→ DataConfig.DEFAULT_TEST_DATA_FILE = 'keyword_driven_tests.csv'
+    │           └─→ Call: TestDataLoader.load('keyword_driven_tests.csv')
+    │
+    ├─→ [data_loader_factory/factory.py] TestDataLoader.load()
+    │   │   @staticmethod ← Pure function, no instance needed
+    │   │   _LOADERS = {'.csv': CSVLoader, ...} ← Maps extension to loader
+    │   │
+    │   └─→ Auto-detect: ext = '.csv'
+    │       └─→ loader_class = _LOADERS.get('.csv') = CSVLoader
+    │           └─→ Call: CSVLoader.load('keyword_driven_tests.csv')
+    │
+    ├─→ [data_loader_factory/loaders/csv_loader.py] CSVLoader.load()
+    │   │   @staticmethod ← Pure function
+    │   │
+    │   ├─ Build absolute path: C:\sp_validation\keyword_driven_tests.csv
+    │   ├─ Open file with UTF-8 encoding
+    │   ├─ Parse CSV with DictReader (uses headers as keys)
+    │   ├─ Auto-detect schema: 'keyword-driven'
+    │   ├─ Transform rows to standard format
+    │   │   (Convert 'yes'/'no' strings to True/False booleans)
+    │   │   (Parse JSON parameters strings to Python dicts)
+    │   │
+    │   └─→ Return: {
+    │       'usp_CreateUpdateSchedulingTeam': [
+    │           {'case_id': 'Create_New_Schd_Team_01', 'operation': 'Create', 'executed': True, ...},
+    │           {'case_id': 'Create_Duplicate_Team_01', 'operation': 'Create', 'executed': True, ...},
+    │           {'case_id': 'Create_New_Schd_Team_02', 'operation': 'Create', 'executed': False, ...},
+    │           {'case_id': 'Update_Schd_Team_02', 'operation': 'Edit', 'executed': False, ...}
+    │       ]
+    │   }
+    │
+    └─→ Back in get_test_case_ids_by_operation()
+        │
+        └─ Filter: operation='Create' AND executed=True
+            └─→ Result: ['Create_New_Schd_Team_01', 'Create_Duplicate_Team_01']
+                │
+                └─→ Back in test_create_01.py
+                    └─ Filter: Remove if 'Duplicate' in test_case_id
+                        └─→ Final: ['Create_New_Schd_Team_01']
+                            └─→ pytest parametrizes test with this list
+```
+
+---
+
+## Key Concepts: Data Loading Layer
+
+| Concept | What It Is | Why It Matters | Example |
+|---------|-----------|----------------|---------|
+| **TestDataLoader** | Factory class with universal `load()` method | Single entry point for all formats (CSV/JSON/Excel) | `TestDataLoader.load('data.csv')` auto-detects format |
+| **_LOADERS Dict** | Maps file extensions to loader classes | Enables format auto-detection without if/else chains | `_LOADERS['.csv']` = `CSVLoader` |
+| **@staticmethod** | Method that doesn't need class instance | Enables pure functions inside classes | `TestDataLoader.load()` called directly on class |
+| **BaseLoader** | Abstract base class (interface) | All loaders implement same contract | `JSONLoader`, `CSVLoader`, `ExcelLoader` all inherit |
+| **Schema Auto-Detection** | Detects keyword-driven vs generic format | Eliminates need for config file to specify format | CSV reads headers automatically |
+| **Type Conversion** | Transforms strings to proper types | Ensures consistent data types across all formats | `'yes'` string → `True` boolean |
+| **Standardization** | Output always same dict structure | Downstream code doesn't care which format was loaded | All loaders return `{module: [rows]}` |
+
+---
+
+## File Reading Summary
+
+```
+┌─────────────────────────────────────────────────────────┐
+│ DATA LOADING FLOW: From Disk to Python Dictionary      │
+└─────────────────────────────────────────────────────────┘
+
+CSV File (keyword_driven_tests.csv)
+┌────────────────────────────────────────────────────────────┐
+│ Module,Operation,Test Case ID,Executed,test_...,test_..   │
+│ usp_Create...,Create,Create_New_Schd_Team_01,yes,...      │
+│ usp_Create...,Create,Create_Duplicate_Team_01,yes,...     │
+│ usp_Create...,Create,Create_New_Schd_Team_02,no,...       │
+│ usp_Create...,Edit,Update_Schd_Team_02,no,...             │
+└────────────────────────────────────────────────────────────┘
+              ↓
+         Opens as UTF-8 text file
+         Reads with csv.DictReader
+              ↓
+     Detects column headers as keys
+     Reads each row into dictionary
+              ↓
+     Auto-detects schema: 'keyword-driven'
+     Transforms to standard format
+              ↓
+     Type Conversions:
+     ✓ 'yes' → True
+     ✓ 'no' → False
+     ✓ JSON strings → Python dicts
+     ✓ Headers → lowercase keys
+              ↓
+     Python Dictionary Structure
+┌────────────────────────────────────────────────────────────┐
+│ {                                                          │
+│   'usp_CreateUpdateSchedulingTeam': [                      │
+│     {                                                      │
+│       'case_id': 'Create_New_Schd_Team_01',              │
+│       'operation': 'Create',                              │
+│       'module': 'usp_CreateUpdateSchedulingTeam',         │
+│       'executed': True,  ← Converted from 'yes'          │
+│       'description': '...',                               │
+│       'parameters': {...}  ← Parsed from JSON string      │
+│     },                                                     │
+│     ...                                                    │
+│   ]                                                        │
+│ }                                                          │
+└────────────────────────────────────────────────────────────┘
+              ↓
+     Filters by operation and executed flag
+     Returns list of matching test case IDs
+```
+
 # View HTML report after running
 # Open: reports/sp_automation_report.html
 ```

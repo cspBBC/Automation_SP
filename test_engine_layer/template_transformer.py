@@ -10,7 +10,7 @@ from typing import Dict, List, Any
 from data_loader_factory import TestDataLoader
 from config.config import DataConfig
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger('sp_validation')
 
 
 class TemplateTransformer:
@@ -173,4 +173,4 @@ if __name__ == "__main__":
         'test_data.csv',
         filter_executed=True
     )
-    print(json.dumps(data, indent=2))
+    logger.info(json.dumps(data, indent=2))

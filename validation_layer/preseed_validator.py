@@ -4,7 +4,7 @@ import os
 import logging
 from database_layer.connection import get_connection
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger('sp_validation')
 
 
 def _read_sql(path: str) -> str:

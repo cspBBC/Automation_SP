@@ -17,7 +17,7 @@ from test_engine_layer.utils import Colors, setup_logging
 from test_engine_layer.parameter_manager import format_dict, make_context
 from test_engine_layer.builder import build_test_context, get_column_names
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger('sp_validation')
 
 
 def load_test_inputs(test_inputs: str) -> Dict[str, Any]:
@@ -187,32 +187,19 @@ def run_stored_procedures(sp_name: str, case_type=None, test_inputs: str = None)
 
 def _execute_single_test(sp_name: str, parameters: Dict, logger=None):
     """Execute a single SP test."""
-    msg = f"Executing {sp_name} (single)..."
-    if logger:
-        logger.info(msg)
-    else:
-        print(msg)
+    if logger is None:
+        logger = logging.getLogger('sp_validation')
+    
+    logger.info(f"Executing {sp_name} (single)...")
     
     result = run_stored_procedure(sp_name, parameters)
     
     if result:
-        msg = f"[OK] Results ({len(result)} rows):"
-        if logger:
-            logger.info(msg)
-        else:
-            print(msg)
+        logger.info(f"[OK] Results ({len(result)} rows):")
         for row_idx, row in enumerate(result, 1):
-            msg = f"    Row {row_idx}: {row}"
-            if logger:
-                logger.info(msg)
-            else:
-                print(msg)
+            logger.info(f"    Row {row_idx}: {row}")
     else:
-        msg = "[OK] No results returned (expected if SP has no SELECT output)"
-        if logger:
-            logger.info(msg)
-        else:
-            print(msg)
+        logger.info("[OK] No results returned (expected if SP has no SELECT output)")
 
 
 def _run_sql_list(sql_list: List, label: str = "", context: Dict = None, logger=None) -> List:
@@ -228,12 +215,11 @@ def _run_sql_list(sql_list: List, label: str = "", context: Dict = None, logger=
         List of (result_rows, col_names) tuples
     """
     context = context or {}
+    if logger is None:
+        logger = logging.getLogger('sp_validation')
     
     def _log_msg(msg):
-        if logger:
-            logger.info(msg)
-        else:
-            print(msg)
+        logger.info(msg)
     
     _log_msg(f"\n-- {label} SQL statements --")
     all_results = []
@@ -303,11 +289,11 @@ def _execute_chain_test(chain_config: List[Dict], context: Dict = None, logger=N
     Returns:
         Result dictionary
     """
+    if logger is None:
+        logger = logging.getLogger('sp_validation')
+    
     def _log_msg(msg):
-        if logger:
-            logger.info(msg)
-        else:
-            print(msg)
+        logger.info(msg)
     
     import copy
     context = context or {}

@@ -4,7 +4,7 @@ from typing import Dict, List, Any
 import logging
 import copy
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger('sp_validation')
 
 
 class SPChainExecutor:

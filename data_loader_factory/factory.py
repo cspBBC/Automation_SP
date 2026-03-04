@@ -10,7 +10,7 @@ from .loader import (
     ExcelLoader,
 )
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger('sp_validation')
 
 
 class TestDataLoader:

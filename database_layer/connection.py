@@ -5,7 +5,7 @@ import logging
 from config.config import DatabaseConfig
 from database_layer.transaction_manager import get_test_transaction
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger('sp_validation')
 
 
 class DBSession:

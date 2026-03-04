@@ -1,30 +1,11 @@
 """Scheduling Group Validators - Validators for scheduling team tests."""
 
+import logging
 from validation_layer.generic_validators import execute_query
 from typing import Dict, Any, List
 
 
-class _SimpleLogger:
-    def info(self, msg, *args, **kwargs):
-        try:
-            print(msg % args)
-        except Exception:
-            print(msg, args)
-
-    def debug(self, msg, *args, **kwargs):
-        try:
-            print(msg % args)
-        except Exception:
-            print(msg, args)
-
-    def warning(self, msg, *args, **kwargs):
-        try:
-            print(msg % args)
-        except Exception:
-            print(msg, args)
-
-
-logger = _SimpleLogger()
+logger = logging.getLogger('sp_validation')
 
 
 def getSchdGrpDetails(scheduling_team_id: int) -> Dict[str, Any]:

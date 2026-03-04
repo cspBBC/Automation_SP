@@ -6,7 +6,7 @@ import json
 from typing import Dict, Any
 from .base_loader import BaseLoader
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger('sp_validation')
 
 
 class ExcelLoader(BaseLoader):

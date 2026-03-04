@@ -4,7 +4,7 @@ from database_layer.connection import DBSession
 from database_layer.normalizer import ParameterNormalizer, SQLDataType
 import logging
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger('sp_validation')
 
 
 def get_stored_procedure_parameters(sp_name):
