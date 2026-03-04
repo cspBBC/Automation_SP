@@ -2,6 +2,27 @@ import os
 import datetime
 import pytest
 import logging
+from test_engine_layer.utils import setup_logging, validate_test_configuration
+
+
+setup_logging()  # Initialize logger for all tests
+
+
+def pytest_configure(config):
+    """Configure pytest - validate test configuration before any tests run."""
+    # Validate test configuration (works with CSV/XLSX/JSON any format)
+    try:
+        validate_test_configuration()
+    except AssertionError as e:
+        pytest.exit(f"Configuration validation failed:\n{e}", returncode=1)
+    
+    # Auto-detect worker count if not specified
+    if not hasattr(config.option, 'numprocesses') or config.option.numprocesses is None:
+        import multiprocessing
+        config.option.numprocesses = max(2, multiprocessing.cpu_count() - 1)
+    
+    # Mark as CI environment if CI env var is set
+    config.ci_mode = os.environ.get('CI', '').lower() in ['true', '1', 'yes']
 
 
 def pytest_addoption(parser):
@@ -11,6 +32,12 @@ def pytest_addoption(parser):
         default="output",
         help="Base folder where per-test output directories are created",
     )
+
+
+@pytest.fixture
+def logger(request):
+    """Provide logger to tests - already initialized by setup_logging()."""
+    return logging.getLogger('sp_validation')
 
 
 @pytest.fixture
@@ -59,31 +86,30 @@ def output_dir(request):
 def setup_execution_logging(request, output_dir):
     """Setup file logging to execution.log for all test output.
     
-    Captures all logger output and writes it to execution.log in the output 
-    directory. This creates a complete transcript of all test execution steps.
+    Parallel-safe: uses pytest-xdist worker ID if available.
     """
-    # Get root logger and set to DEBUG to capture everything
+    # Get root logger and set to DEBUG
     root_logger = logging.getLogger()
     root_logger.setLevel(logging.DEBUG)
     
-    # Create file handler for execution.log
-    log_file = os.path.join(output_dir, "execution.log")
+    # Get worker ID for parallel execution (empty string if not running in parallel)
+    worker_id = getattr(request.config, 'workerinput', {}).get('workerid', 'master')
+    
+    # Create file handler with worker ID in filename for parallel safety
+    log_file = os.path.join(output_dir, f"execution_{worker_id}.log")
     file_handler = logging.FileHandler(log_file, mode='w', encoding='utf-8')
     file_handler.setLevel(logging.DEBUG)
     
-    # Create formatter that includes timestamp and level
     formatter = logging.Formatter(
-        '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S'
+        '[%(asctime)s] %(levelname)s - %(message)s',
+        datefmt='%H:%M:%S'
     )
     file_handler.setFormatter(formatter)
     
-    # Add file handler to root logger
     root_logger.addHandler(file_handler)
     
     yield
     
-    # Cleanup
     file_handler.close()
     root_logger.removeHandler(file_handler)
 

@@ -5,8 +5,6 @@ from test_engine_layer.runner import run_stored_procedures_from_data
 from test_engine_layer.utils import (
     get_test_case_ids_by_operation,
     get_module_for_test_case,
-
-    setup_logging
 )
 from validation_layer.schGroup_validator import (
     getSchdGrpDetails,
@@ -14,14 +12,11 @@ from validation_layer.schGroup_validator import (
 )
 
 
-logger = setup_logging()
-
-# Get enabled test cases
 EDIT_TEST_CASES = get_test_case_ids_by_operation('Edit')
 
 
 @pytest.mark.parametrize("test_case_id", EDIT_TEST_CASES, ids=EDIT_TEST_CASES)
-def test_edit_team(db_transaction, test_case_id):
+def test_edit_team(db_transaction, logger, test_case_id):
     """Execute Edit test case.
     
     - Edit tests use team_id created by Create operation
@@ -29,7 +24,7 @@ def test_edit_team(db_transaction, test_case_id):
     - Validates team is updated correctly
     
     Note: For Edit to work, a Create test must have been enabled to create the team first.
-          The CSV should ensure Create_New_Schd_Team_02 and Update_Schd_Team_02 are configured together.
+          The test data should ensure Create_New_Schd_Team_02 and Update_Schd_Team_02 are configured together.
     """
     module = get_module_for_test_case(test_case_id)
     

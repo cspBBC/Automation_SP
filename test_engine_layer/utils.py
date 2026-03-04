@@ -131,8 +131,8 @@ def get_module_for_test_case(test_case_id: str, data_file: str = None) -> str:
     raise ValueError(f"Test case '{test_case_id}' not found in test data")
 
 
-def validate_csv_configuration(data_file: str = None) -> None:
-    """Validate CSV configuration - ensure if any non-Create test is enabled, at least one Create is enabled.
+def validate_test_configuration(data_file: str = None) -> None:
+    """Validate test configuration - works with CSV/XLSX/JSON. Ensure if any non-Create test is enabled, at least one Create is enabled.
     
     Args:
         data_file: Optional data file path
@@ -174,9 +174,9 @@ def validate_csv_configuration(data_file: str = None) -> None:
         if operation.lower() not in ['create']:
             if not enabled_creates:
                 error_msg = (
-                    f"CSV Configuration Error: {operation} test(s) enabled but no Create test is enabled.\n"
+                    f"Configuration Error: {operation} test(s) enabled but no Create test is enabled.\n"
                     f"  {operation} tests enabled: {', '.join(test_ids)}\n"
-                    f"Please enable at least one Create test (Executed=yes) in keyword_driven_tests.csv"
+                    f"Please enable at least one Create test (Executed=yes) in test data"
                 )
                 logger.error(error_msg)
                 raise AssertionError(error_msg)
@@ -185,10 +185,10 @@ def validate_csv_configuration(data_file: str = None) -> None:
     duplicate_creates = [tc for tc in enabled_creates if 'Duplicate' in tc]
     if duplicate_creates and not regular_creates:
         error_msg = (
-            f"CSV Configuration Error: Duplicate test(s) enabled but no regular Create test is enabled.\n"
+            f"Configuration Error: Duplicate test(s) enabled but no regular Create test is enabled.\n"
             f"  Duplicate tests enabled: {', '.join(duplicate_creates)}\n"
             f"  For duplicate prevention testing: both baseline Create AND Duplicate test must be in same transaction.\n"
-            f"Please enable at least one regular Create test (e.g., Create_New_Schd_Team_01=yes) in keyword_driven_tests.csv\n"
+            f"Please enable at least one regular Create test (e.g., Create_New_Schd_Team_01=yes) in test data\n"
             f"  NOTE: Duplicate test MUST use SAME schedulingTeamName and divisionId as the baseline Create test!"
         )
         logger.error(error_msg)
@@ -225,7 +225,7 @@ def validate_csv_configuration(data_file: str = None) -> None:
             
             if (dup_schd_name != baseline_schd_name) or (dup_div_id != baseline_div_id):
                 error_msg = (
-                    f"CSV Configuration Error: Duplicate test parameters don't match baseline Create.\n"
+                    f"Configuration Error: Duplicate test parameters don't match baseline Create.\n"
                     f"  For duplicate prevention, Duplicate test MUST use:\n"
                     f"    - SAME schedulingTeamName as baseline Create\n"
                     f"    - SAME divisionId as baseline Create\n"
@@ -235,7 +235,7 @@ def validate_csv_configuration(data_file: str = None) -> None:
                     f"  Duplicate test ({dup_test}):\n"
                     f"    - schedulingTeamName: {dup_schd_name}\n"
                     f"    - divisionId: {dup_div_id}\n"
-                    f"  Please update {dup_test} to use same scheduling team name and division ID as {baseline_create}"
+                    f"  Please update {dup_test} to use same scheduling team name and division ID as {baseline_create} in test data"
                 )
                 logger.error(error_msg)
                 raise AssertionError(error_msg)
