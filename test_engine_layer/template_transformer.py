@@ -1,4 +1,7 @@
-"""Template Transformer - Transforms keyword-driven CSV data into generic template."""
+"""Template Transformer - Transforms keyword-driven test data into generic template.
+
+Supports multiple formats (CSV, Excel, JSON, etc) - format auto-detected from file extension.
+"""
 
 import json
 import logging
@@ -10,14 +13,17 @@ logger = logging.getLogger(__name__)
 
 
 class TemplateTransformer:
-    """Transform keyword-driven CSV data into populated JSON templates."""
+    """Transform keyword-driven test data into populated JSON templates.
+    
+    Supports any format (CSV, Excel, JSON, etc) - format auto-detected from file extension.
+    """
     
     @staticmethod
-    def load_and_transform(csv_file: str, template_file: str = None, filter_executed: bool = True, module_filter: str = None, filter_test_name: str = None) -> Dict[str, Any]:
-        """Load CSV data and transform using generic template.
+    def load_and_transform(data_file: str, template_file: str = None, filter_executed: bool = True, module_filter: str = None, filter_test_name: str = None) -> Dict[str, Any]:
+        """Load test data and transform using generic template.
         
         Args:
-            csv_file: Path to keyword-driven CSV file
+            data_file: Path to keyword-driven test data file (CSV/XLSX/XLS/JSON)
             template_file: Path to generic template JSON (default: generic_template.json).
                 Can point at an operation-specific template file; regardless of the
                 filename the JSON must use the module/sp name as its top-level key
@@ -31,7 +37,7 @@ class TemplateTransformer:
             
         Example:
             data = TemplateTransformer.load_and_transform(
-                'keyword_driven_tests.csv',
+                'keyword_driven_tests.xlsx',
                 template_file='data_layer/test_data/usp_CreateUpdateSchedulingTeam/generic_template.json',
                 filter_executed=True,
                 module_filter='usp_CreateUpdateSchedulingTeam',
@@ -41,15 +47,16 @@ class TemplateTransformer:
         if template_file is None:
             template_file = 'data_layer/test_data/generic_template.json'
         
-        logger.info(f"CSV Reference File: {os.path.abspath(csv_file) if os.path.exists(csv_file) else csv_file}")
+        
+        logger.info(f"Data File Path: {os.path.abspath(data_file) if os.path.exists(data_file) else data_file}")
         logger.info(f"Template Reference File: {os.path.abspath(template_file) if os.path.exists(template_file) else template_file}")
         if os.path.exists(template_file):
             logger.info(f"  File size: {os.path.getsize(template_file)} bytes")
         if module_filter:
             logger.info(f"Filtering to module: {module_filter}")
         
-        # Load CSV data using keyword-driven loader
-        csv_data = DataLoaderFactory.load(csv_file, loader_type='keyword_driven')
+        # Load test data from file (format auto-detected: CSV, Excel, JSON, etc)
+        test_data = DataLoaderFactory.load(data_file, loader_type='keyword_driven')
         
         # Load template
         with open(template_file, 'r', encoding='utf-8') as f:
@@ -60,7 +67,7 @@ class TemplateTransformer:
         # Transform and populate
         transformed_data = {}
         
-        for module_name, test_cases in csv_data.items():
+        for module_name, test_cases in test_data.items():
             # Filter by module if specified
             if module_filter and module_name != module_filter:
                 continue
@@ -79,13 +86,13 @@ class TemplateTransformer:
                     logger.debug(f"Skipping test case {test_case.get('case_id')} (not matching filter: {filter_test_name})")
                     continue
                 
-                # Populate template with CSV values
+                # Populate template with test data values
                 populated_case = TemplateTransformer._populate_template(
                     template.get(module_name, [{}])[0] if module_name in template else {},
                     test_case
                 )
                 
-                # Module should remain the stored-procedure/module name, not the CSV "Operation" value
+                # Module should remain the stored-procedure/module name, not the data "Operation" value
                 populated_case['Module'] = module_name
                 populated_case['Operation'] = test_case.get('operation', '')
                 populated_case['Test Case ID'] = test_case.get('case_id', '')
@@ -101,23 +108,23 @@ class TemplateTransformer:
         return transformed_data
     
     @staticmethod
-    def _populate_template(template: Dict[str, Any], csv_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Populate template with CSV data values.
+    def _populate_template(template: Dict[str, Any], data: Dict[str, Any]) -> Dict[str, Any]:
+        """Populate template with test data values.
         
         Args:
             template: Template dictionary with placeholders
-            csv_data: CSV row data with actual values
+            data: Test data row with actual values
             
         Returns:
-            Populated template with values from CSV
+            Populated template with values from test data
         """
         import copy
         
         # Deep copy to avoid modifying original
         result = copy.deepcopy(template)
         
-        # Get parameters from CSV
-        params = csv_data.get('parameters', {})
+        # Get parameters from test data
+        params = data.get('parameters', {})
         
         # Replace placeholders in chain_config
         if 'chain_config' in result:

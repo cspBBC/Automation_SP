@@ -6,6 +6,7 @@ import logging
 import datetime
 import traceback
 from typing import Dict, List, Any
+from test_engine_layer.template_transformer import TemplateTransformer
 
 from data_loader_factory import DataLoaderFactory
 from database_layer.connection import DBSession, get_connection
@@ -368,69 +369,96 @@ def _execute_chain_test(chain_config: List[Dict], context: Dict = None, logger=N
             connection.close()
 
 
-def run_stored_procedures_from_csv(filter_executed: bool = True, filter_test_name: str = None) -> Dict[str, Any]:
-    """Auto-discovery scaffold framework for CSV-driven test execution.
+def run_stored_procedures_from_data(filter_executed: bool = True, filter_test_name: str = None, data_file: str = None) -> Dict[str, Any]:
+    """Auto-discovery scaffold framework for test data-driven test execution.
     
-    No arguments needed - everything comes from CSV!
+    Supports CSV, Excel (XLSX/XLS) and other formats. Format is auto-detected from file extension.
     
-    Scaffold Pattern:
-    1. Automatically reads data_layer/test_data/keyword_driven_tests.csv
-    2. Extracts unique module names (SPs) from CSV
-    3. For each module, identifies operations requested in CSV
-    4. For each operation attempts to load an operation-specific template
+    Pattern:
+    1. Automatically reads data_layer/test_data/{data_file} (CSV/XLSX/XLS auto-detected)
+    2. Extracts unique module names (SPs) from test data
+    3. For each module, identifies operations requested
+    4. For each operation attempts to load an operation-specific JSON template
        (ordered lookup: modules/<module>/<module>_<op>.json,
         data_layer/test_data/<module>_<op>.json, or generic <module>.json)
-    5. Executes test cases based on CSV contents
+    5. Executes test cases based on test data contents
     
     Args:
         filter_executed: If True, only run rows where Executed='Yes' (default: True)
         filter_test_name: If provided, only run the test case with this name (for independent test execution)
+        data_file: Name of data file to support any format (CSV/XLSX/XLS/JSON). If None, defaults to 'keyword_driven_tests.csv'
+                  Format auto-detected from extension. Examples:
+                  - 'keyword_driven_tests.csv' (default)
+                  - 'keyword_driven_tests.xlsx' (Excel format)
+                  - 'test_data' (assumes .json)
     
     Returns:
         Result summary dictionary with all test results
         
-    Example:
-        # No arguments - everything auto-discovered from CSV
-        result = run_stored_procedures_from_csv()
+    Examples:
+        # No arguments - uses default CSV
+        result = run_stored_procedures_from_data()
         
-        # Or filter to executed tests only (default)
-        result = run_stored_procedures_from_csv(filter_executed=True)
+        # Use Excel file instead
+        result = run_stored_procedures_from_data(data_file='keyword_driven_tests.xlsx')
         
-        # Or run a specific test case independently
-        result = run_stored_procedures_from_csv(filter_test_name='Create_New_Schd_Team_01')
+        # Run specific test case in CSV
+        result = run_stored_procedures_from_data(filter_test_name='Create_New_Schd_Team_01')
+        
+        # Run specific test case in Excel
+        result = run_stored_procedures_from_data(data_file='keyword_driven_tests.xlsx', filter_test_name='Create_New_Schd_Team_01')
     """
-    from test_engine_layer.template_transformer import TemplateTransformer
+    
+    
+    # Default to CSV if not specified
+    if data_file is None:
+        data_file = 'keyword_driven_tests.csv'
     
     logger = setup_logging()
     logger.info(f"\n{'='*90}")
-    logger.info(f"Auto-Discovery CSV Test Execution (Scaffold): {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    logger.info(f"Auto-Discovery Test Data-Driven Execution: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    logger.info(f"Data File: {data_file}")
     logger.info(f"Filter Executed: {filter_executed}")
     logger.info(f"{'='*90}\n")
     
     try:
-        # Step 1: Find and load CSV from default location
-        csv_filename = 'keyword_driven_tests.csv'  # Loader adds data_layer/test_data/ prefix
-        csv_path = 'data_layer/test_data/keyword_driven_tests.csv'
+        # Step 1: Find and load test data from default location (format auto-detected)
+        data_filename = data_file  # Loader adds data_layer/test_data/ prefix and auto-detects format
+        data_path = os.path.join('data_layer', 'test_data', data_file)
         
-        if not os.path.exists(csv_path):
-            logger.error(f"CSV not found: {csv_path}")
-            return {'error': f'CSV file not found: {csv_path}'}
+        if not os.path.exists(data_path):
+            logger.error(f"Data file not found: {data_path}")
+            return {'error': f'Data file not found: {data_path}'}
         
-        logger.info(f"CSV Reference File: {os.path.abspath(csv_path)}")
+        logger.info(f"Data File Path: {os.path.abspath(data_path)}")
         logger.info(f"File exists: True")
-        logger.info(f"File size: {os.path.getsize(csv_path)} bytes\n")
+        logger.info(f"File size: {os.path.getsize(data_path)} bytes\n")
         
-        # Step 2: Load CSV to identify unique modules
-        # Pass just the filename - loader adds data_layer/test_data/ prefix automatically
-        csv_data = DataLoaderFactory.load(csv_filename, loader_type='keyword_driven')
+        # Step 2: Load test data (format auto-detected from extension: CSV, XLSX, XLS, JSON)
+        # Pass just the filename - loader adds data_layer/test_data/ prefix and auto-detects format
         
-        if not csv_data:
-            logger.warning("No data loaded from CSV")
+        # For keyword-driven format, use appropriate loader based on file extension
+        file_ext = os.path.splitext(data_file)[1].lower()
+        
+        if file_ext in ['.csv', '']:
+            # CSV or no extension - use keyword-driven CSV loader
+            test_data = DataLoaderFactory.load(data_filename, loader_type='keyword_driven')
+        elif file_ext in ['.xlsx', '.xls']:
+            # Excel format - use ExcelLoader (note: must have keyword-driven structure)
+            logger.info("Loading keyword-driven data from Excel format")
+            test_data = DataLoaderFactory.load(data_filename)  # Auto-detects Excel format
+        else:
+            # Other formats - try factory
+            logger.info(f"Loading keyword-driven data from {file_ext} format")
+            test_data = DataLoaderFactory.load(data_filename)
+        
+        if not test_data:
+            logger.warning("No test data loaded from data file")
             return {}
         
-        # Extract unique module names from CSV
-        unique_modules = list(csv_data.keys())
-        logger.info(f"Discovered {len(unique_modules)} unique module(s) in CSV: {unique_modules}\n")
+        # Extract unique module names from test data
+        unique_modules = list(test_data.keys())
+        logger.info(f"Discovered {len(unique_modules)} unique module(s) in data file: {unique_modules}\n")
         
         if filter_test_name:
             logger.info(f"Running specific test case: {filter_test_name}\n")
@@ -448,7 +476,7 @@ def run_stored_procedures_from_csv(filter_executed: bool = True, filter_test_nam
         
         for module_name in unique_modules:
             # Collect all requested operations for this module (respecting executed flag and test name filter)
-            module_rows = csv_data.get(module_name, [])
+            module_rows = test_data.get(module_name, [])
             ops = set()
             for row in module_rows:
                 if filter_executed and not row.get('executed', False):
@@ -490,9 +518,9 @@ def run_stored_procedures_from_csv(filter_executed: bool = True, filter_test_nam
 
                 logger.info(f"  Using template: {os.path.abspath(specific_template)}")
 
-                # Step 4: Transform CSV data using discovered template
+                # Step 4: Transform test data using discovered template
                 test_data_for_op = TemplateTransformer.load_and_transform(
-                    csv_filename,
+                    data_filename,
                     template_file=specific_template,
                     filter_executed=filter_executed,
                     module_filter=module_name,
@@ -603,3 +631,7 @@ def run_stored_procedures_from_csv(filter_executed: bool = True, filter_test_nam
         logger.error(traceback.format_exc())
         return {'error': str(e)}
 
+
+# Backward compatibility alias
+# Old code using run_stored_procedures_from_csv() will still work
+run_stored_procedures_from_csv = run_stored_procedures_from_data

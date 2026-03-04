@@ -39,7 +39,7 @@ python -m pytest tests/test_edit_01.py -v
 
 #### Option 3: Run specific test cases independently
 
-Each test case in the CSV runs as an independent parametrized test:
+Each test case in the CSV/Excel file runs as an independent parametrized test:
 
 ```bash
 # Run only one Create test case
@@ -48,6 +48,49 @@ python -m pytest tests/test_create_01.py::test_validate_created_team[Create_New_
 # Run only one Edit test case
 python -m pytest tests/test_edit_01.py::test_edit_updates_team_successfully[Update_Schd_Team_01] -v
 ```
+
+#### Option 4: Use Excel or Other Formats Instead of CSV
+
+The framework supports **multiple data formats** (CSV, Excel XLSX/XLS, JSON). Format is auto-detected from file extension:
+
+```bash
+# Default (CSV)
+python -m pytest tests/ -v
+
+# To use Excel file instead, fixtures must specify data_file parameter:
+# (This requires fixture modification in test file)
+```
+
+**In test fixture code:**
+```python
+# Use default CSV
+result = run_stored_procedures_from_data()
+
+# Use Excel file
+result = run_stored_procedures_from_data(data_file='keyword_driven_tests.xlsx')
+
+# Run specific test case from Excel
+result = run_stored_procedures_from_data(data_file='keyword_driven_tests.xlsx', filter_test_name='Create_New_Schd_Team_01')
+
+# Use JSON
+result = run_stored_procedures_from_data(data_file='keyword_driven_tests.json')
+```
+
+**Supported formats:**
+- `keyword_driven_tests.csv` - CSV (default)
+- `keyword_driven_tests.xlsx` - Excel 2007+ format
+- `keyword_driven_tests.xls` - Excel 97-2003 format
+- `keyword_driven_tests.json` - JSON format
+
+---
+
+#### Choosing Your Data Format
+
+| Format | Advantage | Limitation |
+|--------|-----------|-----------|
+| **CSV** | Simple, text-based, version control friendly, lightweight | Limited formatting, no sheets |
+| **XLSX** | Multiple sheets, rich formatting, widely supported | Larger file size, requires openpyxl |
+| **JSON** | Structured, flexible schema, programmatic | Verbose, harder to edit manually |
 
 ---
 
@@ -83,7 +126,7 @@ Paths are workspace-relative. When a file is referenced, it appears as shown.
   - Purpose: concrete loaders for CSV / JSON / keyword-driven CSV formats.
   - Files:
     - `csv_loader.py`, `json_loader.py`, `keyword_driven_loader.py`, `base_loader.py`
-  - The keyword-driven loader is used by `run_stored_procedures_from_csv()` to read the CSV and prepare modules and operations.
+  - The data loader is used by `run_stored_procedures_from_data()` to read test data (CSV/XLSX/XLS/JSON auto-detected) and prepare modules and operations.
 
 - `database_layer/`
   - Purpose: All direct database interaction: connection, transaction management, stored-procedure execution and chain executor for multi-step flows.
@@ -98,7 +141,7 @@ Paths are workspace-relative. When a file is referenced, it appears as shown.
 - `test_engine_layer/`
   - Purpose: The test runner, template transformer, parameter manager, and supporting utils.
   - Key files:
-    - `runner.py` - High-level APIs used by tests: `run_stored_procedures()` and `run_stored_procedures_from_csv()` implement the execution patterns (single SP or CSV scaffold). The scaffold auto-discovers modules, loads templates, executes chain-configs, and returns structured results including `execution_context`/`chain_data`.
+    - `runner.py` - High-level APIs used by tests: `run_stored_procedures()` and `run_stored_procedures_from_data()` implement the execution patterns (single SP or data-driven scaffold). The scaffold auto-discovers modules, loads templates, executes chain-configs, and returns structured results including `execution_context`/`chain_data`. Supports CSV, Excel, JSON and any format auto-detected from file extension.
     - `builder.py` - Constructs test contexts for parameter expansion.
     - `parameter_manager.py` - Utility to format and interpolate parameters into SP calls.
     - `template_transformer.py` - Loads JSON templates and uses CSV rows to create test cases.
@@ -120,7 +163,7 @@ Paths are workspace-relative. When a file is referenced, it appears as shown.
   - Purpose: pytest tests and fixtures used to validate flows.
   - Key files:
     - `conftest.py` - pytest fixtures: `db_transaction` (sets a DB transaction and rolls it back), `output_dir` (per-test output directory), `setup_execution_logging` (adds `execution.log` per test), and captures for `stdout`/`stderr`. Important: `setup_execution_logging` attaches a `FileHandler` to the root logger so all module loggers write into `execution.log`.
-    - `test_create_01.py` - Example test that runs `run_stored_procedures_from_csv()` to create a team and asserts properties.
+    - `test_create_01.py` - Example test that runs `run_stored_procedures_from_data()` to create a team and asserts properties.
     - `test_edit_01.py` - Minimal end-to-end test that runs Create→Edit flow via CSV, fetches details and history via validators, and asserts the edit history contains the expected entries.
 
 - `output/`
@@ -133,7 +176,7 @@ Paths are workspace-relative. When a file is referenced, it appears as shown.
 
 ## How the CSV -> Template -> Chain flow works (high level)
 
-1. `run_stored_procedures_from_csv()` (in `test_engine_layer/runner.py`) reads `data_layer/test_data/keyword_driven_tests.csv` using the keyword-driven loader.
+1. `run_stored_procedures_from_data()` (in `test_engine_layer/runner.py`) reads `data_layer/test_data/keyword_driven_tests.*` (format auto-detected: CSV/XLSX/XLS/JSON) using the appropriate data loader.
 2. It extracts unique module names and requested operations (Create, Edit, etc.).
 3. For each operation it finds an operation-specific JSON template (in `data_layer/test_data/modules/<module>/` or `data_layer/test_data/`). Templates define `chain_config` steps, parameter mappings and output mappings.
 4. For each test case the runner constructs a parameter context, optionally executes pre-SQL, then runs either a single SP or a chain using `SPChainExecutor`.
@@ -332,7 +375,7 @@ When pytest runs `test_validate_created_team[Create_New_Schd_Team_01]`, it first
 
 #### Step 3.4c: Execute the stored procedure chain
 - **File:** `test_engine_layer/runner.py`
-- **Function:** `run_stored_procedures_from_csv(filter_test_name='Create_New_Schd_Team_01')`
+- **Function:** `run_stored_procedures_from_data(filter_test_name='Create_New_Schd_Team_01')`
 - **What it does (high-level):** Follows Steps 3.4c-i through 3.4c-vii below
 - **Input:**
   - `filter_test_name = 'Create_New_Schd_Team_01'` (isolates to one test case)
@@ -357,7 +400,7 @@ When pytest runs `test_validate_created_team[Create_New_Schd_Team_01]`, it first
 
 #### Step 3.4c-i: Load CSV data with keyword-driven loader
 - **File:** `test_engine_layer/runner.py`
-- **Function:** `run_stored_procedures_from_csv()` calls loader
+- **Function:** `run_stored_procedures_from_data()` calls data loader
 - **Loader used:** `data_loader_factory/loaders/keyword_driven_loader.py::KeywordDrivenLoader`
 - **What it does:**
   1. Opens `data_layer/test_data/keyword_driven_tests.csv`
@@ -480,7 +523,7 @@ When pytest runs `test_validate_created_team[Create_New_Schd_Team_01]`, it first
 
 #### Step 3.4c-vi: Return structured result
 - **File:** `test_engine_layer/runner.py`
-- **Function:** Result construction in `run_stored_procedures_from_csv()`
+- **Function:** Result construction in `run_stored_procedures_from_data()`
 - **What it does:**
   1. Takes output from chain executor
   2. Wraps in standardized result format
@@ -621,7 +664,7 @@ test_create_01.py discovered
        │     │  └→ CSV lookup → 'usp_CreateUpdateSchedulingTeam'
        │     ├→ verify_preseed_for_module('usp_CreateUpdateSchedulingTeam')
        │     │  └→ Verify SQL files exist
-       │     └→ run_stored_procedures_from_csv(filter_test_name='Create_New_Schd_Team_01')
+       │     └→ run_stored_procedures_from_data(filter_test_name='Create_New_Schd_Team_01')
        │        ├→ Load CSV with KeywordDrivenLoader
        │        ├→ Load JSON template: usp_CreateUpdateSchedulingTeam_Create.json
        │        ├→ build_test_context() → parameters
@@ -732,7 +775,7 @@ test_create_01.py discovered
        test_case_name = request.param
        module_name = get_module_for_test_case(test_case_name)
        verify_preseed_for_module(module_name)
-       result = run_stored_procedures_from_csv(filter_test_name=test_case_name)
+       result = run_stored_procedures_from_data(filter_test_name=test_case_name)
        # Extract and return resource ID
    
    @pytest.mark.parametrize("created_resource_id", CREATE_TEST_CASES, indirect=True, ids=CREATE_TEST_CASES)
@@ -811,7 +854,7 @@ def duplicate_scenario(db_transaction):
     verify_preseed_for_module(module_name)
     
     # Execute ALL test cases WITHOUT filter - both in same transaction
-    result = run_stored_procedures_from_csv()
+    result = run_stored_procedures_from_data()
     return result.get('results', {})
 
 def test_duplicate_team_name_rejected(duplicate_scenario):

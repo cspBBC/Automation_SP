@@ -1,6 +1,6 @@
 import pytest
 import json
-from test_engine_layer.runner import run_stored_procedures_from_csv
+from test_engine_layer.runner import run_stored_procedures_from_data
 from test_engine_layer.utils import get_test_case_ids_by_operation, verify_preseed_for_module, get_module_for_test_case
 from data_loader_factory import DataLoaderFactory
 from validation_layer.schGroup_validator import (
@@ -33,7 +33,7 @@ def create_then_edit_result(db_transaction, request):
     if create_cases:
         verify_preseed_for_module(get_module_for_test_case(create_cases[0]))
     
-    result = run_stored_procedures_from_csv()
+    result = run_stored_procedures_from_data()
     all_results = result.get('results', {})
     all_test_results = [r for module in all_results.values() for r in module]
     
