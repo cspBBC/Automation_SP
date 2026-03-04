@@ -54,4 +54,4 @@ def verify_preseed_exists(module_path: str, filename: str) -> None:
                 raise AssertionError(
                     f"Precondition failed: '{filename}' query returned no rows:\n{stmt}"
                 )
-            logger.info(f"  ✓ Returned {len(rows)} row(s)")
+            logger.info(f"  [OK] Returned {len(rows)} row(s)")

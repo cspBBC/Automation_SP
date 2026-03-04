@@ -38,7 +38,7 @@ class JSONLoader(BaseLoader):
             raise FileNotFoundError(f"Test data file not found: {file_path}")
         
         try:
-            with open(file_path, 'r', encoding='utf-8') as f:
+            with open(file_path, 'r', encoding='utf-8-sig') as f:
                 data = json.load(f)
             logger.info(f"Successfully loaded test data from {file_path}")
             return data

@@ -156,7 +156,7 @@ class SPChainExecutor:
                 new_value = self.chain_data[chain_var]
                 mapped_params[param_name] = new_value
                 
-                logger.info(f"  ✓ Mapped {param_name}: {old_value} → {new_value} (from chain_data['{chain_var}'])")
+                logger.info(f"  [OK] Mapped {param_name}: {old_value} -> {new_value} (from chain_data['{chain_var}'])")
             else:
                 logger.warning(f"  ⚠ Chain variable '{chain_var}' NOT FOUND in chain_data for {param_name}")
                 logger.warning(f"    Available: {list(self.chain_data.keys())}")
@@ -201,7 +201,7 @@ class SPChainExecutor:
                 for param_name, chain_var in output_mapping.items():
                     old_val = self.chain_data.get(chain_var)
                     self.chain_data[chain_var] = cell_value
-                    logger.info(f"  ✓ Stored chain_data['{chain_var}'] = {cell_value} (was {old_val})")
+                    logger.info(f"  [OK] Stored chain_data['{chain_var}'] = {cell_value} (was {old_val})")
                     return
         
         logger.warning(f"Could not extract numeric ID from row: {first_row}")

@@ -38,7 +38,7 @@ class CSVLoader(BaseLoader):
         
         try:
             data = {}
-            with open(file_path, 'r', encoding='utf-8') as f:
+            with open(file_path, 'r', encoding='utf-8-sig') as f:
                 reader = csv.DictReader(f)
                 for row in reader:
                     sp_name = row.get('sp_name', 'unknown')

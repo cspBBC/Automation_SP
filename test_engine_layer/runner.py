@@ -194,7 +194,7 @@ def _execute_single_test(sp_name: str, parameters: Dict, logger=None):
     result = run_stored_procedure(sp_name, parameters)
     
     if result:
-        msg = f"✓ Results ({len(result)} rows):"
+        msg = f"[OK] Results ({len(result)} rows):"
         if logger:
             logger.info(msg)
         else:
@@ -206,7 +206,7 @@ def _execute_single_test(sp_name: str, parameters: Dict, logger=None):
             else:
                 print(msg)
     else:
-        msg = "✓ No results returned (OK if SP has no SELECT output)"
+        msg = "[OK] No results returned (expected if SP has no SELECT output)"
         if logger:
             logger.info(msg)
         else:
