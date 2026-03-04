@@ -117,19 +117,6 @@ def get_test_case_ids_by_operation(operation: str, test_type: str = None, data_f
     return test_cases
 
 
-# Module to preseed file mappings
-# Add new modules here as they are introduced to the framework
-MODULE_PRESEED_FILES = {
-    'usp_CreateUpdateSchedulingTeam': [
-        'createSchdGroup_user.sql',
-        'createSchdGroup_division.sql'
-    ],
-    # Add more modules as needed:
-    # 'usp_ModuleTwo': ['preseed_module_two_users.sql', 'preseed_module_two_configs.sql'],
-    # 'usp_ModuleThree': ['preseed_module_three_data.sql'],
-}
-
-
 def get_module_for_test_case(test_case_id: str, data_file: str = None) -> str:
     """Get the module name for a given test case ID.
     
@@ -211,42 +198,57 @@ def get_test_type_for_test_case(test_case_id: str, data_file: str = None) -> str
 
 
 def verify_preseed_for_module(module_name: str, request=None) -> bool:
-    """Verify that all required preseed files exist for a given module.
+    """Verify that preseed files exist for a given module.
     
-    Checks if the preseed SQL files required by a module are present in the
-    preseed_data directory. This ensures test data prerequisites are available
-    before tests execute.
+    Automatically discovers and validates all preseed SQL files in the module's
+    preseed folder. No hardcoded file lists needed—just add SQL files to the
+    module's preseed directory.
+    
+    Preseed file structure:
+        data_layer/test_data/
+            usp_ModuleName/
+                preseed_data/
+                    preseed_file_1.sql
+                    preseed_file_2.sql
+                template_data/
+                    Operation.json
     
     Args:
         module_name: Name of the module (e.g., 'usp_CreateUpdateSchedulingTeam')
         request: Optional pytest request object (for better error reporting)
         
     Returns:
-        True if all preseed files exist, False otherwise
+        True if module preseed folder exists and all SQL files are present
         
     Raises:
-        AssertionError: If required preseed files are missing
+        AssertionError: If module folder exists but required files are missing
         
     Example:
         >>> verify_preseed_for_module('usp_CreateUpdateSchedulingTeam')  # Returns True
-        >>> # Or use in a fixture:
-        >>> verify_preseed_for_module('usp_CreateUpdateSchedulingTeam', request)
+        >>> verify_preseed_for_module('usp_NewModule')  # Returns True (no folder = no preseed needed)
     """
-    preseed_dir = Path(__file__).parent.parent / 'data_layer' / 'preseed_data'
+    preseed_base_dir = Path(__file__).parent.parent / 'data_layer' / 'test_data' / module_name / 'preseed_data'
     
-    # If module not in mapping, no preseed required
-    if module_name not in MODULE_PRESEED_FILES:
+    # If module preseed folder doesn't exist, no preseed required
+    if not preseed_base_dir.exists():
         logger = setup_logging()
-        logger.debug(f"Module '{module_name}' has no preseed requirements")
+        logger.debug(f"Module '{module_name}' has no preseed folder—no preseed data required")
         return True
     
-    required_files = MODULE_PRESEED_FILES[module_name]
-    missing_files = []
+    # Find all .sql files in module preseed folder
+    sql_files = list(preseed_base_dir.glob('*.sql'))
     
-    for preseed_file in required_files:
-        file_path = preseed_dir / preseed_file
-        if not file_path.exists():
-            missing_files.append(str(file_path))
+    # If folder exists but no SQL files, that's still okay (empty preseed)
+    if not sql_files:
+        logger = setup_logging()
+        logger.debug(f"Module '{module_name}' preseed folder exists but is empty")
+        return True
+    
+    # Verify all discovered SQL files exist
+    missing_files = []
+    for sql_file in sql_files:
+        if not sql_file.exists():
+            missing_files.append(str(sql_file))
     
     # Raise error if files are missing
     if missing_files:

@@ -33,7 +33,6 @@ def created_team_id(db_transaction, request):
     team_id = list(result.get('results', {}).values())[0][0].get('execution_context', {}).get('created_team_id')
     return {'team_id': team_id}
 
-
 @pytest.mark.parametrize("created_team_id", CREATE_TEST_CASES, indirect=True, ids=CREATE_TEST_CASES)
 def test_validate_created_team(created_team_id):
     """Validate independent Create test case."""

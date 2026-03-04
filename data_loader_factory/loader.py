@@ -47,17 +47,23 @@ class JSONLoader(BaseLoader):
         
         # Build path if not absolute
         if not os.path.isabs(file_path):
-            # For root-level files (e.g., keyword_driven_tests.csv → .json)
-            # check root first, then fall back to data_layer/test_data/
             project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
             
-            # Try root level first
-            candidate_path = os.path.join(project_root, file_path)
-            if not os.path.exists(candidate_path):
-                # Fall back to data_layer/test_data/
-                candidate_path = os.path.join(project_root, 'data_layer', 'test_data', file_path)
+            # Try multiple paths in order
+            candidate_paths = [
+                os.path.join(project_root, file_path),
+                os.path.join(project_root, 'data_layer', 'test_data', file_path),
+            ]
             
-            file_path = candidate_path
+            file_path = None
+            for path in candidate_paths:
+                if os.path.exists(path):
+                    file_path = path
+                    break
+            
+            if not file_path:
+                # None found, use first candidate for error message
+                file_path = candidate_paths[0]
         
         logger.info(f"Loading JSON test data from: {file_path}")
         
@@ -104,17 +110,23 @@ class CSVLoader(BaseLoader):
         
         # Build path if not absolute
         if not os.path.isabs(file_path):
-            # For root-level files (e.g., keyword_driven_tests.csv)
-            # check root first, then fall back to data_layer/test_data/
             project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
             
-            # Try root level first
-            candidate_path = os.path.join(project_root, file_path)
-            if not os.path.exists(candidate_path):
-                # Fall back to data_layer/test_data/
-                candidate_path = os.path.join(project_root, 'data_layer', 'test_data', file_path)
+            # Try multiple paths in order
+            candidate_paths = [
+                os.path.join(project_root, file_path),
+                os.path.join(project_root, 'data_layer', 'test_data', file_path),
+            ]
             
-            file_path = candidate_path
+            file_path = None
+            for path in candidate_paths:
+                if os.path.exists(path):
+                    file_path = path
+                    break
+            
+            if not file_path:
+                # None found, use first candidate for error message
+                file_path = candidate_paths[0]
         
         logger.info(f"Loading CSV test data from: {file_path}")
         
@@ -216,16 +228,23 @@ class ExcelLoader(BaseLoader):
         
         # Build path if not absolute
         if not os.path.isabs(file_path):
-            # For root-level files, check root first, then fall back to data_layer/test_data/
             project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
             
-            # Try root level first
-            candidate_path = os.path.join(project_root, file_path)
-            if not os.path.exists(candidate_path):
-                # Fall back to data_layer/test_data/
-                candidate_path = os.path.join(project_root, 'data_layer', 'test_data', file_path)
+            # Try multiple paths in order
+            candidate_paths = [
+                os.path.join(project_root, file_path),
+                os.path.join(project_root, 'data_layer', 'test_data', file_path),
+            ]
             
-            file_path = candidate_path
+            file_path = None
+            for path in candidate_paths:
+                if os.path.exists(path):
+                    file_path = path
+                    break
+            
+            if not file_path:
+                # None found, use first candidate for error message
+                file_path = candidate_paths[0]
         
         logger.info(f"Loading Excel test data from: {file_path}")
         

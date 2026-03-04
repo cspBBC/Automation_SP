@@ -505,14 +505,17 @@ def run_stored_procedures_from_data(filter_executed: bool = True, filter_test_na
 
             # For each operation, try to load an operation-specific template first
             for op in sorted(ops):
-                # search order: modules/<module>/<module>_<op>.json -> data_layer/test_data/<module>_<op>.json -> data_layer/test_data/<module>.json
+                # search order: data_layer/test_data/<module>/template_data/<module>_<op>.json -> legacy paths
                 test_data_base = 'data_layer/test_data'
-                module_folder = os.path.join(test_data_base, 'modules', module_name)
+                module_template_dir = os.path.join(test_data_base, module_name, 'template_data')
                 specific_template = None
 
                 candidate_paths = []
-                if os.path.isdir(module_folder):
-                    candidate_paths.append(os.path.join(module_folder, f"{module_name}_{op}.json"))
+                # New modularized structure: data_layer/test_data/{module}/template_data/
+                if os.path.isdir(module_template_dir):
+                    candidate_paths.append(os.path.join(module_template_dir, f"{module_name}_{op}.json"))
+                # Legacy paths for backward compatibility
+                candidate_paths.append(os.path.join(test_data_base, 'modules', module_name, f"{module_name}_{op}.json"))
                 candidate_paths.append(os.path.join(test_data_base, f"{module_name}_{op}.json"))
                 candidate_paths.append(os.path.join(test_data_base, f"{module_name}.json"))
 

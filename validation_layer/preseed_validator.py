@@ -17,19 +17,34 @@ def verify_preseed_exists(module_path: str, filename: str) -> None:
     """Execute each query in the given file and assert it returns rows.
     
     Args:
-        module_path: Module path (for logging/reference, not used for file path)
-        filename: SQL filename to execute from data_layer/preseed_data/
+        module_path: Module name (e.g., 'usp_CreateUpdateSchedulingTeam')
+        filename: SQL filename to execute from preseed location
         
     Raises:
         AssertionError: If any query returns zero rows
+        
+    Preseed file structure (auto-detected):
+        New: data_layer/test_data/{module}/preseed_data/{filename}
+        Legacy: data_layer/preseed_data/{filename}
     """
-    # Look for preseed SQL files in data_layer/preseed_data/
+    # Look for preseed SQL files in modularized or legacy locations
     import pathlib
     project_root = pathlib.Path(__file__).parent.parent
-    full = project_root / "data_layer" / "preseed_data" / filename
     
-    if not os.path.isfile(full):
-        logger.info(f"Preseed Reference File: {os.path.abspath(full)}")
+    # Try new modularized structure first
+    candidate_paths = [
+        project_root / "data_layer" / "test_data" / module_path / "preseed_data" / filename,
+        project_root / "data_layer" / "preseed_data" / filename,  # Legacy fallback
+    ]
+    
+    full = None
+    for path in candidate_paths:
+        if os.path.isfile(path):
+            full = path
+            break
+    
+    if not full:
+        logger.info(f"Preseed Reference File: {os.path.abspath(candidate_paths[0])}")
         logger.info(f"File exists: False (skipping)")
         return
 
