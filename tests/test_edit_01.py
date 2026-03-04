@@ -1,69 +1,76 @@
+"""Test Edit operations - simple keyword-driven approach."""
+
 import pytest
-from config.config import DataConfig
 from test_engine_layer.runner import run_stored_procedures_from_data
 from test_engine_layer.utils import (
-    get_test_case_ids_by_operation, 
-    verify_preseed_for_module, 
-    get_module_for_test_case
+    get_test_case_ids_by_operation,
+    get_module_for_test_case,
+
+    setup_logging
 )
-from data_loader_factory import TestDataLoader
 from validation_layer.schGroup_validator import (
     getSchdGrpDetails,
     validateSchdGrpHistoryExists
 )
 
-TEST_USER_ID = 10201
 
+logger = setup_logging()
 
-def validate_workflow_dependencies():
-    """Validate Create tests are enabled if Edit tests are enabled."""
-    create_tests = get_test_case_ids_by_operation('Create')
-    edit_tests = get_test_case_ids_by_operation('Edit')
-    if edit_tests and not create_tests:
-        pytest.skip("Edit tests enabled but no Create tests found")
-
-
-# Get test case IDs
+# Get enabled test cases
 EDIT_TEST_CASES = get_test_case_ids_by_operation('Edit')
 
 
-@pytest.fixture
-def team_after_edit(db_transaction, request):
-    """Execute Create->Edit workflow in isolated transaction, return team ID."""
-    validate_workflow_dependencies()
+@pytest.mark.parametrize("test_case_id", EDIT_TEST_CASES, ids=EDIT_TEST_CASES)
+def test_edit_team(db_transaction, test_case_id):
+    """Execute Edit test case.
     
-    # Get first Create test case to verify preseed data
-    create_cases = get_test_case_ids_by_operation('Create')
-    if create_cases:
-        verify_preseed_for_module(get_module_for_test_case(create_cases[0]))
+    - Edit tests use team_id created by Create operation
+    - Both operations run in same transaction
+    - Validates team is updated correctly
     
-    # Execute all operations (Create + Edit)
+    Note: For Edit to work, a Create test must have been enabled to create the team first.
+          The CSV should ensure Create_New_Schd_Team_02 and Update_Schd_Team_02 are configured together.
+    """
+    module = get_module_for_test_case(test_case_id)
+    
+    logger.info(f"\nExecuting: {test_case_id}")
+    logger.info(f"Expected: Success")
+    
+    # Run all tests (Create + Edit) in the workflow
     result = run_stored_procedures_from_data()
-    all_test_results = [r for module in result.get('results', {}).values() for r in module]
     
-    # Find last successful Create result
-    create_results = [r for r in all_test_results 
-                      if r.get('Operation') == 'Create' and r.get('status') == 'PASSED'
-                      and 'negative' not in r.get('Test Type', '').lower()]
+    # Extract all results
+    all_results = []
+    for module_results in result.get('results', {}).values():
+        all_results.extend(module_results)
     
-    assert create_results, "No successful Create operation found"
-    team_id = create_results[-1].get('execution_context', {}).get('created_team_id')
-    assert team_id, "Create operation must return a team ID"
+    # Find the Edit test result
+    test_result = next((r for r in all_results if r.get('case_id') == test_case_id), None)
     
-    # Validate Edit also passed
-    edit_result = next((r for r in all_test_results if r.get('Operation') == 'Edit'), None)
-    assert edit_result and edit_result.get('status') == 'PASSED', "Edit operation must pass"
+    if not test_result:
+        raise AssertionError(f"No result found for test case '{test_case_id}'")
     
-    return {'team_id': team_id}
-
-
-@pytest.mark.parametrize("team_after_edit", EDIT_TEST_CASES, indirect=True, ids=EDIT_TEST_CASES)
-def test_edit_updates_team_successfully(team_after_edit):
-    """Validate Edit workflow successfully creates and updates team."""
-    team_id = team_after_edit['team_id']
-    details = getSchdGrpDetails(team_id)
-    assert details, f"Team {team_id} should exist"
-    assert details.get('schedulingTeamId') == team_id
-    assert validateSchdGrpHistoryExists(team_id, TEST_USER_ID)
-
+    status = test_result.get('status', '').upper()
+    team_id = test_result.get('execution_context', {}).get('created_team_id')
+    message = test_result.get('message', '') or test_result.get('error', '')
     
+    logger.info(f"Status: {status}")
+    if team_id:
+        logger.info(f"Team ID: {team_id}")
+    if message:
+        logger.info(f"Message: {message}")
+    
+    # Validate that Edit was successful
+    assert status == 'SUCCESS' or status == 'PASSED', f"Expected success but got {status}: {message}"
+    assert team_id, f"Edit should return team_id but got: {team_id}"
+    
+    # Validate team was updated in DB
+    team_details = getSchdGrpDetails(team_id)
+    assert team_details.get('schedulingTeamId') == team_id, f"Team {team_id} not found in DB"
+    
+    # Validate history was recorded
+    history_exists = validateSchdGrpHistoryExists(team_id, user_id=10201)
+    assert history_exists, f"History not recorded for team {team_id}"
+    
+    logger.info(f"✓ Team {team_id} updated and validated in database")
+    logger.info(f"✓ History record created for team {team_id}")

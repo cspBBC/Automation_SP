@@ -11,7 +11,12 @@ from .runner import (
     run_stored_procedures_from_csv  # Backward compatibility alias
 )
 from .template_transformer import TemplateTransformer
-from .utils import setup_logging, get_test_case_ids_by_operation, verify_preseed_for_module, get_module_for_test_case, get_test_type_for_test_case
+from .utils import (
+    setup_logging,
+    get_test_case_ids_by_operation,
+    get_module_for_test_case,
+    validate_csv_configuration
+)
 
 __all__ = [
     'ConfigLoader',

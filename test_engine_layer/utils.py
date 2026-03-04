@@ -1,9 +1,9 @@
-"""Utils - Logging, formatting, and test data utilities."""
+"""Utils - Simple logging, formatting, and test data utilities."""
 
 import sys
 import logging
 from pathlib import Path
-from typing import List
+from typing import List, Dict
 from config.config import DataConfig
 
 
@@ -38,17 +38,11 @@ class Colors:
 
 
 def setup_logging():
-    """Setup console logging while preserving any file handlers.
-    
-    Removes console handlers to avoid duplicates but preserves file handlers
-    that may have been added by test fixtures.
-    
-    Returns the logger.
-    """
+    """Setup console logging."""
     logger = logging.getLogger('sp_validation')
     logger.setLevel(logging.DEBUG)
     
-    # Remove existing console handlers to avoid duplicates, but preserve file handlers
+    # Remove existing console handlers to avoid duplicates
     for handler in logger.handlers[:]:
         if not isinstance(handler, logging.FileHandler):
             logger.removeHandler(handler)
@@ -66,195 +60,203 @@ def setup_logging():
     return logger
 
 
-def get_test_case_ids_by_operation(operation: str, test_type: str = None, data_file: str = None) -> List[str]:
-    """Load test case IDs from test data filtered by operation type and execution status.
-    
-    Filters the keyword-driven test data (CSV/Excel/JSON) to return only test case IDs where:
-    - The Operation field matches the specified operation (case-insensitive)
-    - The Executed field is 'Yes' (case-insensitive)
-    - The Test Type field matches the specified type (optional, case-insensitive)
-    
-    Format is auto-detected from file extension (CSV/XLSX/XLS/JSON).
+def load_test_data(data_file: str = None) -> Dict:
+    """Load test data from CSV/Excel/JSON file.
     
     Args:
-        operation: Operation type to filter by (e.g., 'Create', 'Edit', 'Delete')
-        test_type: Optional test type to filter by (e.g., 'independent', 'scenario', 'workflow')
-        data_file: Optional data file name (defaults to configured DEFAULT_TEST_DATA_FILE). Format auto-detected from extension.
+        data_file: Optional data file path. Defaults to configured file.
         
     Returns:
-        List of test case IDs matching the criteria, in data file order
-        
-    Example:
-        >>> create_tests = get_test_case_ids_by_operation('Create')
-        >>> independent_tests = get_test_case_ids_by_operation('Create', test_type='independent')
-        >>> scenario_tests = get_test_case_ids_by_operation('Create', test_type='scenario')
-        >>> from_excel = get_test_case_ids_by_operation('Create', data_file='custom_tests.xlsx')
+        Dict of {module_name: [test_case_rows]}
     """
     from data_loader_factory import TestDataLoader
     
-    # Default to configured data file if not specified
     if data_file is None:
         data_file = DataConfig.DEFAULT_TEST_DATA_FILE
     
-    # Load test data using format-agnostic loader (auto-detects format and schema)
-    test_data = TestDataLoader.load(data_file)
+    return TestDataLoader.load(data_file)
+
+
+def get_test_case_ids_by_operation(operation: str, data_file: str = None) -> List[str]:
+    """Get enabled test case IDs for an operation.
+    
+    Args:
+        operation: Operation type (e.g., 'Create', 'Edit')
+        data_file: Optional data file path
+        
+    Returns:
+        List of enabled test case IDs
+    """
+    test_data = load_test_data(data_file)
     test_cases = []
     
-    # Iterate through all modules and their test cases
     for module_name, cases in test_data.items():
         for row in cases:
             test_name = row.get('case_id', '').strip()
             op = row.get('operation', '').strip()
-            executed = row.get('executed', False)
-            tt = row.get('test_type', '').strip()
+            executed_raw = row.get('executed', False)
             
-            # Include tests matching operation and executed status
+            # Convert string 'True'/'False' to boolean
+            if isinstance(executed_raw, str):
+                executed = executed_raw.lower() == 'true'
+            else:
+                executed = bool(executed_raw)
+            
             if op.lower() == operation.lower() and executed:
-                # If test_type specified, also check it
-                if test_type is None or tt.lower() == test_type.lower():
-                    test_cases.append(test_name)
+                test_cases.append(test_name)
     
     return test_cases
 
 
 def get_module_for_test_case(test_case_id: str, data_file: str = None) -> str:
-    """Get the module name for a given test case ID.
-    
-    Looks up the test case in test data (CSV/Excel/JSON) and returns its module name.
-    Format is auto-detected from file extension.
+    """Get the module name for a test case.
     
     Args:
-        test_case_id: Test case ID to look up
-        data_file: Optional data file name (defaults to configured DEFAULT_TEST_DATA_FILE). Format auto-detected from extension.
+        test_case_id: Test case ID
+        data_file: Optional data file path
         
     Returns:
-        Module name for the test case
+        Module name
         
     Raises:
-        ValueError: If test case not found in test data
-        
-    Example:
-        >>> module = get_module_for_test_case('Create_New_Schd_Team_01')
-        >>> # Returns: 'usp_CreateUpdateSchedulingTeam'
+        ValueError: If test case not found
     """
-    from data_loader_factory import TestDataLoader
+    test_data = load_test_data(data_file)
     
-    # Default to configured data file if not specified
-    if data_file is None:
-        data_file = DataConfig.DEFAULT_TEST_DATA_FILE
-    
-    # Load test data using format-agnostic loader (auto-detects format and schema)
-    test_data = TestDataLoader.load(data_file)
-    
-    # Search through all modules for the test case
     for module_name, cases in test_data.items():
         for row in cases:
             if row.get('case_id', '').strip() == test_case_id:
                 return module_name
     
-    raise ValueError(f"Test case '{test_case_id}' not found in test data file '{data_file}'")
+    raise ValueError(f"Test case '{test_case_id}' not found in test data")
 
 
-def get_test_type_for_test_case(test_case_id: str, data_file: str = None) -> str:
-    """Get the test type for a given test case ID.
-    
-    Looks up the test case in test data (CSV/Excel/JSON) and returns its Test Type.
-    Format is auto-detected from file extension.
-    
-    Test types determine execution mode:
-    - 'independent': Test case runs in isolated transaction with filter_test_name
-    - 'scenario': Test case runs in shared transaction with other scenario tests
-    - 'workflow': Test case part of multi-step workflow (Create→Edit, etc.)
+def validate_csv_configuration(data_file: str = None) -> None:
+    """Validate CSV configuration - ensure if any non-Create test is enabled, at least one Create is enabled.
     
     Args:
-        test_case_id: Test case ID to look up
-        data_file: Optional data file name (defaults to configured DEFAULT_TEST_DATA_FILE). Format auto-detected from extension.
+        data_file: Optional data file path
+        
+    Raises:
+        AssertionError: If configuration is invalid
+    """
+    test_data = load_test_data(data_file)
+    
+    logger = setup_logging()
+    
+    # Get all enabled tests grouped by operation
+    enabled_by_operation = {}
+    for module_name, cases in test_data.items():
+        for row in cases:
+            op = row.get('operation', '').strip()
+            executed_raw = row.get('executed', False)
+            case_id = row.get('case_id', '').strip()
+            
+            # Convert string 'True'/'False' to boolean
+            if isinstance(executed_raw, str):
+                executed = executed_raw.lower() == 'true'
+            else:
+                executed = bool(executed_raw)
+            
+            if executed:
+                if op not in enabled_by_operation:
+                    enabled_by_operation[op] = []
+                enabled_by_operation[op].append(case_id)
+    
+    # Get all enabled Create tests
+    enabled_creates = enabled_by_operation.get('Create', []) or enabled_by_operation.get('create', [])
+    
+    # Filter out Duplicate Creates (they need a regular Create to duplicate from)
+    regular_creates = [tc for tc in enabled_creates if 'Duplicate' not in tc]
+    
+    # Check 1: Normal operations (Edit, etc.) require at least one Create
+    for operation, test_ids in enabled_by_operation.items():
+        if operation.lower() not in ['create']:
+            if not enabled_creates:
+                error_msg = (
+                    f"CSV Configuration Error: {operation} test(s) enabled but no Create test is enabled.\n"
+                    f"  {operation} tests enabled: {', '.join(test_ids)}\n"
+                    f"Please enable at least one Create test (Executed=yes) in keyword_driven_tests.csv"
+                )
+                logger.error(error_msg)
+                raise AssertionError(error_msg)
+    
+    # Check 2: Duplicate test requires at least one REGULAR (non-Duplicate) Create
+    duplicate_creates = [tc for tc in enabled_creates if 'Duplicate' in tc]
+    if duplicate_creates and not regular_creates:
+        error_msg = (
+            f"CSV Configuration Error: Duplicate test(s) enabled but no regular Create test is enabled.\n"
+            f"  Duplicate tests enabled: {', '.join(duplicate_creates)}\n"
+            f"  For duplicate prevention testing: both baseline Create AND Duplicate test must be in same transaction.\n"
+            f"Please enable at least one regular Create test (e.g., Create_New_Schd_Team_01=yes) in keyword_driven_tests.csv\n"
+            f"  NOTE: Duplicate test MUST use SAME schedulingTeamName and divisionId as the baseline Create test!"
+        )
+        logger.error(error_msg)
+        raise AssertionError(error_msg)
+    
+    # Check 3: If Duplicate enabled, verify it has SAME schedulingTeamName and divisionId as baseline Create
+    if duplicate_creates and regular_creates:
+        # Build a map of test cases to their parameters
+        test_params = {}
+        for module_name, cases in test_data.items():
+            for row in cases:
+                case_id = row.get('case_id', '').strip()
+                # Try 'parameters' (from CSV loader) first, then 'test_parameters' (raw CSV)
+                params = row.get('parameters', row.get('test_parameters', {}))
+                if isinstance(params, str):
+                    try:
+                        import json
+                        params = json.loads(params)
+                    except:
+                        pass
+                test_params[case_id] = params
+        
+        # Get baseline Create parameters
+        baseline_create = regular_creates[0]  # First enabled regular Create
+        baseline_params = test_params.get(baseline_create, {})
+        baseline_schd_name = baseline_params.get('schedulingTeamName', '')
+        baseline_div_id = baseline_params.get('divisionId', '')
+        
+        # Check each Duplicate test
+        for dup_test in duplicate_creates:
+            dup_params = test_params.get(dup_test, {})
+            dup_schd_name = dup_params.get('schedulingTeamName', '')
+            dup_div_id = dup_params.get('divisionId', '')
+            
+            if (dup_schd_name != baseline_schd_name) or (dup_div_id != baseline_div_id):
+                error_msg = (
+                    f"CSV Configuration Error: Duplicate test parameters don't match baseline Create.\n"
+                    f"  For duplicate prevention, Duplicate test MUST use:\n"
+                    f"    - SAME schedulingTeamName as baseline Create\n"
+                    f"    - SAME divisionId as baseline Create\n"
+                    f"  Baseline Create ({baseline_create}):\n"
+                    f"    - schedulingTeamName: {baseline_schd_name}\n"
+                    f"    - divisionId: {baseline_div_id}\n"
+                    f"  Duplicate test ({dup_test}):\n"
+                    f"    - schedulingTeamName: {dup_schd_name}\n"
+                    f"    - divisionId: {dup_div_id}\n"
+                    f"  Please update {dup_test} to use same scheduling team name and division ID as {baseline_create}"
+                )
+                logger.error(error_msg)
+                raise AssertionError(error_msg)
+
+
+
+def get_test_parameters(test_case_id: str, data_file: str = None) -> Dict:
+    """Get the parameters for a test case.
+    
+    Args:
+        test_case_id: Test case ID
+        data_file: Optional data file path
         
     Returns:
-        Test type for the test case (default: 'independent')
-        
-    Example:
-        >>> test_type = get_test_type_for_test_case('Create_Duplicate_Team_01')
-        >>> # Returns: 'scenario'
+        Dict of test parameters
     """
-    from data_loader_factory import TestDataLoader
+    test_data = load_test_data(data_file)
     
-    # Default to configured data file if not specified
-    if data_file is None:
-        data_file = DataConfig.DEFAULT_TEST_DATA_FILE
-    
-    # Load test data using format-agnostic loader (auto-detects format and schema)
-    test_data = TestDataLoader.load(data_file)
-    
-    # Search through all modules for the test case
     for module_name, cases in test_data.items():
         for row in cases:
             if row.get('case_id', '').strip() == test_case_id:
-                test_type = row.get('test_type', 'independent').strip()
-                return test_type if test_type else 'independent'
+                return row.get('test_parameters', {})
     
-    # Default to 'independent' if test case not found
-    return 'independent'
-
-
-def verify_preseed_for_module(module_name: str, request=None) -> bool:
-    """Verify that preseed files exist for a given module.
-    
-    Automatically discovers and validates all preseed SQL files in the module's
-    preseed folder. No hardcoded file lists needed—just add SQL files to the
-    module's preseed directory.
-    
-    Preseed file structure:
-        data_layer/test_data/
-            usp_ModuleName/
-                preseed_data/
-                    preseed_file_1.sql
-                    preseed_file_2.sql
-                template_data/
-                    Operation.json
-    
-    Args:
-        module_name: Name of the module (e.g., 'usp_CreateUpdateSchedulingTeam')
-        request: Optional pytest request object (for better error reporting)
-        
-    Returns:
-        True if module preseed folder exists and all SQL files are present
-        
-    Raises:
-        AssertionError: If module folder exists but required files are missing
-        
-    Example:
-        >>> verify_preseed_for_module('usp_CreateUpdateSchedulingTeam')  # Returns True
-        >>> verify_preseed_for_module('usp_NewModule')  # Returns True (no folder = no preseed needed)
-    """
-    preseed_base_dir = Path(__file__).parent.parent / 'data_layer' / 'test_data' / module_name / 'preseed_data'
-    
-    # If module preseed folder doesn't exist, no preseed required
-    if not preseed_base_dir.exists():
-        logger = setup_logging()
-        logger.debug(f"Module '{module_name}' has no preseed folder—no preseed data required")
-        return True
-    
-    # Find all .sql files in module preseed folder
-    sql_files = list(preseed_base_dir.glob('*.sql'))
-    
-    # If folder exists but no SQL files, that's still okay (empty preseed)
-    if not sql_files:
-        logger = setup_logging()
-        logger.debug(f"Module '{module_name}' preseed folder exists but is empty")
-        return True
-    
-    # Verify all discovered SQL files exist
-    missing_files = []
-    for sql_file in sql_files:
-        if not sql_file.exists():
-            missing_files.append(str(sql_file))
-    
-    # Raise error if files are missing
-    if missing_files:
-        error_msg = f"Missing preseed files for module '{module_name}':\n"
-        for f in missing_files:
-            error_msg += f"  - {f}\n"
-        raise AssertionError(error_msg.strip())
-    
-    return True
+    return {}
