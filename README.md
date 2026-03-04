@@ -146,7 +146,7 @@ Paths are workspace-relative. When a file is referenced, it appears as shown.
     - `parameter_manager.py` - Utility to format and interpolate parameters into SP calls.
     - `template_transformer.py` - Loads JSON templates and uses CSV rows to create test cases.
     - `utils.py` - Logging setup, colors, and utility functions:
-      - `get_test_case_ids_by_operation(operation)` - Load test case IDs from CSV filtered by operation type and execution status. Used in tests to parametrize fixtures.
+      - `get_test_case_ids_by_operation(operation)` - Load test case IDs from test data (CSV/Excel/JSON auto-detected) filtered by operation type and execution status. Used in tests to parametrize fixtures. Supports `data_file` parameter for format flexibility.
       - `verify_preseed_for_module(module_name)` - Verify that all required preseed SQL files exist for a module. Module-aware preseed requirements are defined in `MODULE_PRESEED_FILES` dict.
       - `get_module_for_test_case(test_case_id)` - Look up the module name for a given test case ID from CSV.
 

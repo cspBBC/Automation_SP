@@ -2,7 +2,6 @@
 
 import sys
 import logging
-import csv
 from pathlib import Path
 from typing import List
 
@@ -66,36 +65,47 @@ def setup_logging():
     return logger
 
 
-def get_test_case_ids_by_operation(operation: str, test_type: str = None) -> List[str]:
-    """Load test case IDs from CSV filtered by operation type and execution status.
+def get_test_case_ids_by_operation(operation: str, test_type: str = None, data_file: str = None) -> List[str]:
+    """Load test case IDs from test data filtered by operation type and execution status.
     
-    Filters the keyword-driven CSV to return only test case IDs where:
+    Filters the keyword-driven test data (CSV/Excel/JSON) to return only test case IDs where:
     - The Operation field matches the specified operation (case-insensitive)
     - The Executed field is 'Yes' (case-insensitive)
     - The Test Type field matches the specified type (optional, case-insensitive)
     
+    Format is auto-detected from file extension (CSV/XLSX/XLS/JSON).
+    
     Args:
         operation: Operation type to filter by (e.g., 'Create', 'Edit', 'Delete')
         test_type: Optional test type to filter by (e.g., 'independent', 'scenario', 'workflow')
+        data_file: Optional data file name (defaults to 'keyword_driven_tests.csv'). Format auto-detected from extension.
         
     Returns:
-        List of test case IDs matching the criteria, in CSV order
+        List of test case IDs matching the criteria, in data file order
         
     Example:
         >>> create_tests = get_test_case_ids_by_operation('Create')
         >>> independent_tests = get_test_case_ids_by_operation('Create', test_type='independent')
         >>> scenario_tests = get_test_case_ids_by_operation('Create', test_type='scenario')
+        >>> from_excel = get_test_case_ids_by_operation('Create', data_file='keyword_driven_tests.xlsx')
     """
-    csv_path = Path(__file__).parent.parent / 'data_layer' / 'test_data' / 'keyword_driven_tests.csv'
+    from data_loader_factory import DataLoaderFactory
+    
+    # Default to CSV if not specified
+    if data_file is None:
+        data_file = 'keyword_driven_tests.csv'
+    
+    # Load test data using format-agnostic loader (auto-detects format)
+    test_data = DataLoaderFactory.load(data_file, loader_type='keyword_driven')
     test_cases = []
     
-    with open(csv_path, 'r', encoding='utf-8') as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            test_name = row.get('Test Case ID', '').strip()
-            op = row.get('Operation', '').strip()
-            executed = row.get('Executed', '').strip().lower() == 'yes'
-            tt = row.get('Test Type', '').strip()
+    # Iterate through all modules and their test cases
+    for module_name, cases in test_data.items():
+        for row in cases:
+            test_name = row.get('case_id', '').strip()
+            op = row.get('operation', '').strip()
+            executed = row.get('executed', False)
+            tt = row.get('test_type', '').strip()
             
             # Include tests matching operation and executed status
             if op.lower() == operation.lower() and executed:
@@ -119,39 +129,50 @@ MODULE_PRESEED_FILES = {
 }
 
 
-def get_module_for_test_case(test_case_id: str) -> str:
+def get_module_for_test_case(test_case_id: str, data_file: str = None) -> str:
     """Get the module name for a given test case ID.
     
-    Looks up the test case in the CSV and returns its module name.
+    Looks up the test case in test data (CSV/Excel/JSON) and returns its module name.
+    Format is auto-detected from file extension.
     
     Args:
         test_case_id: Test case ID to look up
+        data_file: Optional data file name (defaults to 'keyword_driven_tests.csv'). Format auto-detected from extension.
         
     Returns:
         Module name for the test case
         
     Raises:
-        ValueError: If test case not found in CSV
+        ValueError: If test case not found in test data
         
     Example:
         >>> module = get_module_for_test_case('Create_New_Schd_Team_01')
         >>> # Returns: 'usp_CreateUpdateSchedulingTeam'
     """
-    csv_path = Path(__file__).parent.parent / 'data_layer' / 'test_data' / 'keyword_driven_tests.csv'
+    from data_loader_factory import DataLoaderFactory
     
-    with open(csv_path, 'r', encoding='utf-8') as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            if row.get('Test Case ID', '').strip() == test_case_id:
-                return row.get('Module', '').strip()
+    # Default to CSV if not specified
+    if data_file is None:
+        data_file = 'keyword_driven_tests.csv'
     
-    raise ValueError(f"Test case '{test_case_id}' not found in CSV")
+    # Load test data using format-agnostic loader (auto-detects format)
+    test_data = DataLoaderFactory.load(data_file, loader_type='keyword_driven')
+    
+    # Search through all modules for the test case
+    for module_name, cases in test_data.items():
+        for row in cases:
+            if row.get('case_id', '').strip() == test_case_id:
+                return module_name
+    
+    raise ValueError(f"Test case '{test_case_id}' not found in test data file '{data_file}'")
 
 
-def get_test_type_for_test_case(test_case_id: str) -> str:
+def get_test_type_for_test_case(test_case_id: str, data_file: str = None) -> str:
     """Get the test type for a given test case ID.
     
-    Looks up the test case in the CSV and returns its Test Type.
+    Looks up the test case in test data (CSV/Excel/JSON) and returns its Test Type.
+    Format is auto-detected from file extension.
+    
     Test types determine execution mode:
     - 'independent': Test case runs in isolated transaction with filter_test_name
     - 'scenario': Test case runs in shared transaction with other scenario tests
@@ -159,6 +180,7 @@ def get_test_type_for_test_case(test_case_id: str) -> str:
     
     Args:
         test_case_id: Test case ID to look up
+        data_file: Optional data file name (defaults to 'keyword_driven_tests.csv'). Format auto-detected from extension.
         
     Returns:
         Test type for the test case (default: 'independent')
@@ -167,13 +189,20 @@ def get_test_type_for_test_case(test_case_id: str) -> str:
         >>> test_type = get_test_type_for_test_case('Create_Duplicate_Team_01')
         >>> # Returns: 'scenario'
     """
-    csv_path = Path(__file__).parent.parent / 'data_layer' / 'test_data' / 'keyword_driven_tests.csv'
+    from data_loader_factory import DataLoaderFactory
     
-    with open(csv_path, 'r', encoding='utf-8') as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            if row.get('Test Case ID', '').strip() == test_case_id:
-                test_type = row.get('Test Type', 'independent').strip()
+    # Default to CSV if not specified
+    if data_file is None:
+        data_file = 'keyword_driven_tests.csv'
+    
+    # Load test data using format-agnostic loader (auto-detects format)
+    test_data = DataLoaderFactory.load(data_file, loader_type='keyword_driven')
+    
+    # Search through all modules for the test case
+    for module_name, cases in test_data.items():
+        for row in cases:
+            if row.get('case_id', '').strip() == test_case_id:
+                test_type = row.get('test_type', 'independent').strip()
                 return test_type if test_type else 'independent'
     
     # Default to 'independent' if test case not found

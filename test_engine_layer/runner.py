@@ -627,7 +627,7 @@ def run_stored_procedures_from_data(filter_executed: bool = True, filter_test_na
         }
     
     except Exception as e:
-        logger.error(f"Scaffold CSV execution failed: {e}")
+        logger.error(f"Test data-driven execution failed: {e}")
         logger.error(traceback.format_exc())
         return {'error': str(e)}
 

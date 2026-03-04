@@ -54,6 +54,7 @@ class KeywordDrivenCSVLoader(BaseLoader):
                     operation = row.get('Operation', '').strip()
                     case_id = row.get('Test Case ID', '').strip()
                     executed = row.get('Executed', 'No').strip().lower() == 'yes'
+                    test_type = row.get('Test Type', 'independent').strip()
                     params_json = row.get('test_parameters', '{}').strip()
                     
                     # Skip if module is empty
@@ -79,6 +80,7 @@ class KeywordDrivenCSVLoader(BaseLoader):
                         'description': f"{operation} test case: {case_id}",
                         'operation': operation,
                         'executed': executed,
+                        'test_type': test_type,
                         'parameters': params
                     }
                     
