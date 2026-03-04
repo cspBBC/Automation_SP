@@ -89,14 +89,14 @@ def get_test_case_ids_by_operation(operation: str, test_type: str = None, data_f
         >>> scenario_tests = get_test_case_ids_by_operation('Create', test_type='scenario')
         >>> from_excel = get_test_case_ids_by_operation('Create', data_file='keyword_driven_tests.xlsx')
     """
-    from data_loader_factory import DataLoaderFactory
+    from data_loader_factory import TestDataLoader
     
     # Default to CSV if not specified
     if data_file is None:
         data_file = 'keyword_driven_tests.csv'
     
     # Load test data using format-agnostic loader (auto-detects format)
-    test_data = DataLoaderFactory.load(data_file, loader_type='keyword_driven')
+    test_data = TestDataLoader.load(data_file, loader_type='keyword_driven')
     test_cases = []
     
     # Iterate through all modules and their test cases
@@ -149,14 +149,14 @@ def get_module_for_test_case(test_case_id: str, data_file: str = None) -> str:
         >>> module = get_module_for_test_case('Create_New_Schd_Team_01')
         >>> # Returns: 'usp_CreateUpdateSchedulingTeam'
     """
-    from data_loader_factory import DataLoaderFactory
+    from data_loader_factory import TestDataLoader
     
     # Default to CSV if not specified
     if data_file is None:
         data_file = 'keyword_driven_tests.csv'
     
     # Load test data using format-agnostic loader (auto-detects format)
-    test_data = DataLoaderFactory.load(data_file, loader_type='keyword_driven')
+    test_data = TestDataLoader.load(data_file, loader_type='keyword_driven')
     
     # Search through all modules for the test case
     for module_name, cases in test_data.items():
@@ -189,14 +189,14 @@ def get_test_type_for_test_case(test_case_id: str, data_file: str = None) -> str
         >>> test_type = get_test_type_for_test_case('Create_Duplicate_Team_01')
         >>> # Returns: 'scenario'
     """
-    from data_loader_factory import DataLoaderFactory
+    from data_loader_factory import TestDataLoader
     
     # Default to CSV if not specified
     if data_file is None:
         data_file = 'keyword_driven_tests.csv'
     
     # Load test data using format-agnostic loader (auto-detects format)
-    test_data = DataLoaderFactory.load(data_file, loader_type='keyword_driven')
+    test_data = TestDataLoader.load(data_file, loader_type='keyword_driven')
     
     # Search through all modules for the test case
     for module_name, cases in test_data.items():

@@ -7,7 +7,7 @@ import json
 import logging
 import os
 from typing import Dict, List, Any
-from data_loader_factory import DataLoaderFactory
+from data_loader_factory import TestDataLoader
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +56,7 @@ class TemplateTransformer:
             logger.info(f"Filtering to module: {module_filter}")
         
         # Load test data from file (format auto-detected: CSV, Excel, JSON, etc)
-        test_data = DataLoaderFactory.load(data_file, loader_type='keyword_driven')
+        test_data = TestDataLoader.load(data_file, loader_type='keyword_driven')
         
         # Load template
         with open(template_file, 'r', encoding='utf-8') as f:

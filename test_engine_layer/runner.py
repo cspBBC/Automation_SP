@@ -8,7 +8,7 @@ import traceback
 from typing import Dict, List, Any
 from test_engine_layer.template_transformer import TemplateTransformer
 
-from data_loader_factory import DataLoaderFactory
+from data_loader_factory import TestDataLoader
 from database_layer.connection import DBSession, get_connection
 from database_layer.procedure_executor import run_stored_procedure
 from database_layer.chain_executor import SPChainExecutor
@@ -423,12 +423,20 @@ def run_stored_procedures_from_data(filter_executed: bool = True, filter_test_na
     
     try:
         # Step 1: Find and load test data from default location (format auto-detected)
-        data_filename = data_file  # Loader adds data_layer/test_data/ prefix and auto-detects format
-        data_path = os.path.join('data_layer', 'test_data', data_file)
+        data_filename = data_file  # Loader handles path resolution
         
-        if not os.path.exists(data_path):
-            logger.error(f"Data file not found: {data_path}")
-            return {'error': f'Data file not found: {data_path}'}
+        # Check root level first, then fall back to nested path
+        root_path = os.path.abspath(data_file)
+        nested_path = os.path.join('data_layer', 'test_data', data_file)
+        
+        # Determine which path to use
+        if os.path.exists(root_path):
+            data_path = root_path
+        elif os.path.exists(nested_path):
+            data_path = nested_path
+        else:
+            logger.error(f"Data file not found: {root_path} or {nested_path}")
+            return {'error': f'Data file not found: {root_path} or {nested_path}'}
         
         logger.info(f"Data File Path: {os.path.abspath(data_path)}")
         logger.info(f"File exists: True")
@@ -442,15 +450,15 @@ def run_stored_procedures_from_data(filter_executed: bool = True, filter_test_na
         
         if file_ext in ['.csv', '']:
             # CSV or no extension - use keyword-driven CSV loader
-            test_data = DataLoaderFactory.load(data_filename, loader_type='keyword_driven')
+            test_data = TestDataLoader.load(data_filename, loader_type='keyword_driven')
         elif file_ext in ['.xlsx', '.xls']:
-            # Excel format - use ExcelLoader (note: must have keyword-driven structure)
+            # Excel format - auto-detects and uses Excel loader
             logger.info("Loading keyword-driven data from Excel format")
-            test_data = DataLoaderFactory.load(data_filename)  # Auto-detects Excel format
+            test_data = TestDataLoader.load(data_filename)  # Auto-detects Excel format
         else:
-            # Other formats - try factory
+            # Other formats - auto-detect format
             logger.info(f"Loading keyword-driven data from {file_ext} format")
-            test_data = DataLoaderFactory.load(data_filename)
+            test_data = TestDataLoader.load(data_filename)
         
         if not test_data:
             logger.warning("No test data loaded from data file")
