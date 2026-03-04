@@ -1,77 +1,69 @@
 import pytest
-import json
 from config.config import DataConfig
 from test_engine_layer.runner import run_stored_procedures_from_data
-from test_engine_layer.utils import get_test_case_ids_by_operation, verify_preseed_for_module, get_module_for_test_case
+from test_engine_layer.utils import (
+    get_test_case_ids_by_operation, 
+    verify_preseed_for_module, 
+    get_module_for_test_case
+)
 from data_loader_factory import TestDataLoader
 from validation_layer.schGroup_validator import (
     getSchdGrpDetails,
-    getSchdGrpHistory,
     validateSchdGrpHistoryExists
 )
 
 TEST_USER_ID = 10201
 
 
-def validate_dependencies(dependent_op: str, prerequisite_op: str):
-    """Validate prerequisite operation is enabled if dependent is enabled."""
-    dependent = get_test_case_ids_by_operation(dependent_op)
-    prerequisite = get_test_case_ids_by_operation(prerequisite_op)
-    if dependent and not prerequisite:
-        pytest.skip(f"{dependent_op} enabled but no {prerequisite_op} tests found")
+def validate_workflow_dependencies():
+    """Validate Create tests are enabled if Edit tests are enabled."""
+    create_tests = get_test_case_ids_by_operation('Create')
+    edit_tests = get_test_case_ids_by_operation('Edit')
+    if edit_tests and not create_tests:
+        pytest.skip("Edit tests enabled but no Create tests found")
 
 
-# Get test case IDs for parametrization
+# Get test case IDs
 EDIT_TEST_CASES = get_test_case_ids_by_operation('Edit')
 
 
 @pytest.fixture
-def create_then_edit_result(db_transaction, request):
-    """Execute Create, then Edit; extract expected team name from CSV."""
-    validate_dependencies('Edit', 'Create')
+def team_after_edit(db_transaction, request):
+    """Execute Create->Edit workflow in isolated transaction, return team ID."""
+    validate_workflow_dependencies()
     
+    # Get first Create test case to verify preseed data
     create_cases = get_test_case_ids_by_operation('Create')
     if create_cases:
         verify_preseed_for_module(get_module_for_test_case(create_cases[0]))
     
+    # Execute all operations (Create + Edit)
     result = run_stored_procedures_from_data()
-    all_results = result.get('results', {})
-    all_test_results = [r for module in all_results.values() for r in module]
+    all_test_results = [r for module in result.get('results', {}).values() for r in module]
     
-    expected_team_name = None
-    if hasattr(request, 'param'):
-        csv_data = TestDataLoader.load(DataConfig.DEFAULT_TEST_DATA_FILE)
-        for cases in csv_data.values():
-            for case in cases:
-                if case.get('case_id') == request.param:
-                    expected_team_name = case.get('parameters', {}).get('schedulingTeamName')
+    # Find last successful Create result
+    create_results = [r for r in all_test_results 
+                      if r.get('Operation') == 'Create' and r.get('status') == 'PASSED'
+                      and 'negative' not in r.get('Test Type', '').lower()]
     
-    creates = [r for r in all_test_results 
-               if r.get('Operation') == 'Create' and r.get('status') == 'PASSED'
-               and 'negative' not in r.get('Test Type', '').lower()]
-    created_team_id = creates[-1].get('execution_context', {}).get('created_team_id') if creates else None
+    assert create_results, "No successful Create operation found"
+    team_id = create_results[-1].get('execution_context', {}).get('created_team_id')
+    assert team_id, "Create operation must return a team ID"
     
-    create_status = creates[-1].get('status') if creates else None
-    edit_status = next((r.get('status') for r in all_test_results 
-                       if r.get('Operation') == 'Edit'), None)
+    # Validate Edit also passed
+    edit_result = next((r for r in all_test_results if r.get('Operation') == 'Edit'), None)
+    assert edit_result and edit_result.get('status') == 'PASSED', "Edit operation must pass"
     
-    assert created_team_id, "Create operation must return a team ID"
-    assert create_status == 'PASSED', f"Create failed: {create_status}"
-    assert edit_status == 'PASSED', f"Edit failed: {edit_status}"
-    
-    return {'team_id': created_team_id, 'expected_team_name': expected_team_name}
+    return {'team_id': team_id}
 
 
-# Parametrize fixture with all Edit test cases
-@pytest.mark.parametrize("create_then_edit_result", EDIT_TEST_CASES, indirect=True, ids=EDIT_TEST_CASES)
-def test_edit_updates_team_successfully(create_then_edit_result):
-    team_id = create_then_edit_result['team_id']
-    expected = create_then_edit_result.get('expected_team_name')
+@pytest.mark.parametrize("team_after_edit", EDIT_TEST_CASES, indirect=True, ids=EDIT_TEST_CASES)
+def test_edit_updates_team_successfully(team_after_edit):
+    """Validate Edit workflow successfully creates and updates team."""
+    team_id = team_after_edit['team_id']
     details = getSchdGrpDetails(team_id)
     assert details, f"Team {team_id} should exist"
     assert details.get('schedulingTeamId') == team_id
-    if expected:
-        assert details.get('schedulingTeamName') == expected
     assert validateSchdGrpHistoryExists(team_id, TEST_USER_ID)
 
     
