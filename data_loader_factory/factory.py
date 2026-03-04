@@ -8,7 +8,6 @@ from .loader import (
     JSONLoader,
     CSVLoader,
     ExcelLoader,
-    KeywordDrivenLoader
 )
 
 logger = logging.getLogger(__name__)
@@ -19,7 +18,11 @@ class TestDataLoader:
     Universal test data loader for various formats.
     
     Auto-detects format from file extension and uses the appropriate loader.
-    Supports JSON, CSV, Excel (XLSX/XLS), and keyword-driven CSV formats.
+    Supports JSON, CSV (with automatic schema detection), and Excel (XLSX/XLS) formats.
+    
+    CSV files are automatically detected as either:
+    - Keyword-driven format (Module/Operation/Test Case ID/etc.)
+    - Generic format (sp_name)
     """
     
     _LOADERS = {
@@ -34,16 +37,17 @@ class TestDataLoader:
         """Load test data from a file with automatic format detection.
         
         Automatically detects format from file extension if not explicitly specified.
-        Supports JSON, CSV, Excel, and keyword-driven CSV formats.
+        For CSV files, automatically detects schema (keyword-driven or generic).
+        Supports JSON, CSV, and Excel formats.
         
         Args:
             file_path: Path to the data file. Can include or exclude extension.
                       If no extension provided, defaults to JSON.
             format: Optional explicit format ('json', 'csv', 'xlsx', 'xls').
                    If not provided, auto-detects from file extension.
-            loader_type: Optional explicit loader type:
-                        - 'keyword_driven' for keyword-driven CSV format
-                        - Otherwise uses default loader for format
+            loader_type: Deprecated. Previously used for 'keyword_driven' format.
+                        CSV files now auto-detect schema automatically.
+                        Parameter kept for backward compatibility.
         
         Returns:
             Dictionary containing test data keyed by module/SP name
@@ -56,8 +60,8 @@ class TestDataLoader:
             # Load JSON file (auto-detected)
             TestDataLoader.load('test_data.json')
             
-            # Load keyword-driven CSV
-            TestDataLoader.load('keyword_tests.csv', loader_type='keyword_driven')
+            # Load CSV file (schema auto-detected: keyword-driven or generic)
+            TestDataLoader.load('tests.csv')
             
             # Explicit format (no extension needed)
             TestDataLoader.load('test_data', format='json')
@@ -65,10 +69,8 @@ class TestDataLoader:
             # Load Excel file (auto-detected)
             TestDataLoader.load('test_data.xlsx')
         """
-        # Handle keyword-driven loader explicitly
-        if loader_type and loader_type.lower() == 'keyword_driven':
-            logger.info(f"Using KeywordDrivenLoader for: {file_path}")
-            return KeywordDrivenLoader.load(file_path)
+        # Note: loader_type parameter kept for backward compatibility but not used
+        # CSV files automatically detect schema type (keyword-driven vs generic)
         
         # Determine file extension
         if format:

@@ -2,6 +2,12 @@ from dotenv import load_dotenv
 import os
 load_dotenv()
 
+
+class DataConfig:
+    """Test data configuration - SINGLE SOURCE OF TRUTH."""
+    DEFAULT_TEST_DATA_FILE = 'keyword_driven_tests.csv'
+
+
 class DatabaseConfig:
     DB_HOST = os.getenv('DB_HOST')
     DB_NAME = os.getenv('DB_NAME')

@@ -6,7 +6,6 @@ from .loader import (
     JSONLoader,
     CSVLoader,
     ExcelLoader,
-    KeywordDrivenLoader
 )
 
 __all__ = [
@@ -16,5 +15,4 @@ __all__ = [
     'JSONLoader',
     'CSVLoader',
     'ExcelLoader',
-    'KeywordDrivenLoader'
 ]

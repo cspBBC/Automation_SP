@@ -6,6 +6,7 @@ import logging
 import datetime
 import traceback
 from typing import Dict, List, Any
+from config.config import DataConfig
 from test_engine_layer.template_transformer import TemplateTransformer
 
 from data_loader_factory import TestDataLoader
@@ -386,11 +387,11 @@ def run_stored_procedures_from_data(filter_executed: bool = True, filter_test_na
     Args:
         filter_executed: If True, only run rows where Executed='Yes' (default: True)
         filter_test_name: If provided, only run the test case with this name (for independent test execution)
-        data_file: Name of data file to support any format (CSV/XLSX/XLS/JSON). If None, defaults to 'keyword_driven_tests.csv'
+        data_file: Name of data file to support any format (CSV/XLSX/XLS/JSON). If None, defaults to config.DataConfig.DEFAULT_TEST_DATA_FILE
                   Format auto-detected from extension. Examples:
-                  - 'keyword_driven_tests.csv' (default)
-                  - 'keyword_driven_tests.xlsx' (Excel format)
-                  - 'test_data' (assumes .json)
+                  - DataConfig.DEFAULT_TEST_DATA_FILE (configured default)
+                  - 'custom_tests.xlsx' (Excel format)
+                  - 'test_data.json' (JSON format)
     
     Returns:
         Result summary dictionary with all test results
@@ -400,19 +401,19 @@ def run_stored_procedures_from_data(filter_executed: bool = True, filter_test_na
         result = run_stored_procedures_from_data()
         
         # Use Excel file instead
-        result = run_stored_procedures_from_data(data_file='keyword_driven_tests.xlsx')
+        result = run_stored_procedures_from_data(data_file='custom_tests.xlsx')
         
         # Run specific test case in CSV
         result = run_stored_procedures_from_data(filter_test_name='Create_New_Schd_Team_01')
         
         # Run specific test case in Excel
-        result = run_stored_procedures_from_data(data_file='keyword_driven_tests.xlsx', filter_test_name='Create_New_Schd_Team_01')
+        result = run_stored_procedures_from_data(data_file='custom_tests.xlsx', filter_test_name='Create_New_Schd_Team_01')
     """
     
     
-    # Default to CSV if not specified
+    # Default to configured data file if not specified
     if data_file is None:
-        data_file = 'keyword_driven_tests.csv'
+        data_file = DataConfig.DEFAULT_TEST_DATA_FILE
     
     logger = setup_logging()
     logger.info(f"\n{'='*90}")
@@ -450,14 +451,14 @@ def run_stored_procedures_from_data(filter_executed: bool = True, filter_test_na
         
         if file_ext in ['.csv', '']:
             # CSV or no extension - use keyword-driven CSV loader
-            test_data = TestDataLoader.load(data_filename, loader_type='keyword_driven')
+            test_data = TestDataLoader.load(data_filename)
         elif file_ext in ['.xlsx', '.xls']:
             # Excel format - auto-detects and uses Excel loader
-            logger.info("Loading keyword-driven data from Excel format")
-            test_data = TestDataLoader.load(data_filename)  # Auto-detects Excel format
+            logger.info("Loading test data from Excel format")
+            test_data = TestDataLoader.load(data_filename)
         else:
             # Other formats - auto-detect format
-            logger.info(f"Loading keyword-driven data from {file_ext} format")
+            logger.info(f"Loading test data from {file_ext} format")
             test_data = TestDataLoader.load(data_filename)
         
         if not test_data:

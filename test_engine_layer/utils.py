@@ -4,6 +4,7 @@ import sys
 import logging
 from pathlib import Path
 from typing import List
+from config.config import DataConfig
 
 
 class Colors:
@@ -78,7 +79,7 @@ def get_test_case_ids_by_operation(operation: str, test_type: str = None, data_f
     Args:
         operation: Operation type to filter by (e.g., 'Create', 'Edit', 'Delete')
         test_type: Optional test type to filter by (e.g., 'independent', 'scenario', 'workflow')
-        data_file: Optional data file name (defaults to 'keyword_driven_tests.csv'). Format auto-detected from extension.
+        data_file: Optional data file name (defaults to configured DEFAULT_TEST_DATA_FILE). Format auto-detected from extension.
         
     Returns:
         List of test case IDs matching the criteria, in data file order
@@ -87,16 +88,16 @@ def get_test_case_ids_by_operation(operation: str, test_type: str = None, data_f
         >>> create_tests = get_test_case_ids_by_operation('Create')
         >>> independent_tests = get_test_case_ids_by_operation('Create', test_type='independent')
         >>> scenario_tests = get_test_case_ids_by_operation('Create', test_type='scenario')
-        >>> from_excel = get_test_case_ids_by_operation('Create', data_file='keyword_driven_tests.xlsx')
+        >>> from_excel = get_test_case_ids_by_operation('Create', data_file='custom_tests.xlsx')
     """
     from data_loader_factory import TestDataLoader
     
-    # Default to CSV if not specified
+    # Default to configured data file if not specified
     if data_file is None:
-        data_file = 'keyword_driven_tests.csv'
+        data_file = DataConfig.DEFAULT_TEST_DATA_FILE
     
-    # Load test data using format-agnostic loader (auto-detects format)
-    test_data = TestDataLoader.load(data_file, loader_type='keyword_driven')
+    # Load test data using format-agnostic loader (auto-detects format and schema)
+    test_data = TestDataLoader.load(data_file)
     test_cases = []
     
     # Iterate through all modules and their test cases
@@ -137,7 +138,7 @@ def get_module_for_test_case(test_case_id: str, data_file: str = None) -> str:
     
     Args:
         test_case_id: Test case ID to look up
-        data_file: Optional data file name (defaults to 'keyword_driven_tests.csv'). Format auto-detected from extension.
+        data_file: Optional data file name (defaults to configured DEFAULT_TEST_DATA_FILE). Format auto-detected from extension.
         
     Returns:
         Module name for the test case
@@ -151,12 +152,12 @@ def get_module_for_test_case(test_case_id: str, data_file: str = None) -> str:
     """
     from data_loader_factory import TestDataLoader
     
-    # Default to CSV if not specified
+    # Default to configured data file if not specified
     if data_file is None:
-        data_file = 'keyword_driven_tests.csv'
+        data_file = DataConfig.DEFAULT_TEST_DATA_FILE
     
-    # Load test data using format-agnostic loader (auto-detects format)
-    test_data = TestDataLoader.load(data_file, loader_type='keyword_driven')
+    # Load test data using format-agnostic loader (auto-detects format and schema)
+    test_data = TestDataLoader.load(data_file)
     
     # Search through all modules for the test case
     for module_name, cases in test_data.items():
@@ -180,7 +181,7 @@ def get_test_type_for_test_case(test_case_id: str, data_file: str = None) -> str
     
     Args:
         test_case_id: Test case ID to look up
-        data_file: Optional data file name (defaults to 'keyword_driven_tests.csv'). Format auto-detected from extension.
+        data_file: Optional data file name (defaults to configured DEFAULT_TEST_DATA_FILE). Format auto-detected from extension.
         
     Returns:
         Test type for the test case (default: 'independent')
@@ -191,12 +192,12 @@ def get_test_type_for_test_case(test_case_id: str, data_file: str = None) -> str
     """
     from data_loader_factory import TestDataLoader
     
-    # Default to CSV if not specified
+    # Default to configured data file if not specified
     if data_file is None:
-        data_file = 'keyword_driven_tests.csv'
+        data_file = DataConfig.DEFAULT_TEST_DATA_FILE
     
-    # Load test data using format-agnostic loader (auto-detects format)
-    test_data = TestDataLoader.load(data_file, loader_type='keyword_driven')
+    # Load test data using format-agnostic loader (auto-detects format and schema)
+    test_data = TestDataLoader.load(data_file)
     
     # Search through all modules for the test case
     for module_name, cases in test_data.items():

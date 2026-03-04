@@ -8,6 +8,7 @@ import logging
 import os
 from typing import Dict, List, Any
 from data_loader_factory import TestDataLoader
+from config.config import DataConfig
 
 logger = logging.getLogger(__name__)
 
@@ -37,11 +38,11 @@ class TemplateTransformer:
             
         Example:
             data = TemplateTransformer.load_and_transform(
-                'keyword_driven_tests.xlsx',
-                template_file='data_layer/test_data/usp_CreateUpdateSchedulingTeam/generic_template.json',
+                'custom_data.xlsx',
+                template_file='data_layer/test_data/module_template.json',
                 filter_executed=True,
-                module_filter='usp_CreateUpdateSchedulingTeam',
-                filter_test_name='Create_New_Schd_Team_01'
+                module_filter='usp_Module',
+                filter_test_name='Test_Case_01'
             )
         """
         if template_file is None:
@@ -55,8 +56,8 @@ class TemplateTransformer:
         if module_filter:
             logger.info(f"Filtering to module: {module_filter}")
         
-        # Load test data from file (format auto-detected: CSV, Excel, JSON, etc)
-        test_data = TestDataLoader.load(data_file, loader_type='keyword_driven')
+        # Load test data from file (format and schema auto-detected)
+        test_data = TestDataLoader.load(data_file)
         
         # Load template
         with open(template_file, 'r', encoding='utf-8') as f:
@@ -169,7 +170,7 @@ class TemplateTransformer:
 if __name__ == "__main__":
     # Example usage
     data = TemplateTransformer.load_and_transform(
-        'data_layer/test_data/keyword_driven_tests.csv',
+        'test_data.csv',
         filter_executed=True
     )
     print(json.dumps(data, indent=2))

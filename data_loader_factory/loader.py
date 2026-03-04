@@ -78,17 +78,25 @@ class JSONLoader(BaseLoader):
 
 
 class CSVLoader(BaseLoader):
-    """Load test data from CSV files with flexible formatting."""
+    """Load test data from CSV files with automatic schema detection.
+    
+    Auto-detects schema and supports both:
+    - Keyword-driven format (Module/Operation/Test Case ID/etc.)
+    - Generic format (sp_name)
+    """
     
     @staticmethod
     def load(file_path: str) -> Dict[str, Any]:
-        """Load test data from a CSV file.
+        """Load test data from a CSV file with auto-detected schema.
+        
+        Detects whether CSV uses keyword-driven format (Module/Operation/Test Case ID/etc.)
+        or generic format (sp_name) and parses accordingly.
         
         Args:
             file_path: Path to the CSV file
             
         Returns:
-            Dictionary containing test data keyed by column name
+            Dictionary containing test data keyed by module/SP name
         """
         # Ensure .csv extension
         if not file_path.endswith('.csv'):
@@ -115,13 +123,61 @@ class CSVLoader(BaseLoader):
         
         try:
             data = {}
-            with open(file_path, 'r', encoding='utf-8') as f:
+            
+            with open(file_path, 'r', encoding='utf-8-sig') as f:
+                # Read header to detect schema
                 reader = csv.DictReader(f)
+                headers = reader.fieldnames or []
+                
+                # Detect schema: keyword-driven or generic
+                is_keyword_driven = 'Module' in headers and 'Operation' in headers
+                
+                logger.info(f"Detected schema: {'keyword-driven' if is_keyword_driven else 'generic'}")
+                
                 for row in reader:
-                    sp_name = row.get('sp_name', 'unknown')
-                    if sp_name not in data:
-                        data[sp_name] = []
-                    data[sp_name].append(row)
+                    if is_keyword_driven:
+                        # Keyword-driven schema parsing
+                        module = row.get('Module', '').strip()
+                        operation = row.get('Operation', '').strip()
+                        case_id = row.get('Test Case ID', '').strip()
+                        executed = row.get('Executed', 'No').strip().lower() == 'yes'
+                        test_type = row.get('Test Type', 'independent').strip()
+                        params_json = row.get('test_parameters', '{}').strip()
+                        
+                        # Skip if module is empty
+                        if not module:
+                            logger.warning(f"Skipping row with empty Module: {row}")
+                            continue
+                        
+                        # Initialize module entry if not exists
+                        if module not in data:
+                            data[module] = []
+                        
+                        # Parse test parameters JSON
+                        try:
+                            params = json.loads(params_json) if params_json else {}
+                        except json.JSONDecodeError as e:
+                            logger.warning(f"Invalid JSON in test_parameters for {case_id}: {e}")
+                            params = {}
+                        
+                        # Build test case object matching keyword-driven format
+                        test_case = {
+                            'case_id': case_id,
+                            'case_type': operation.upper() if operation else 'POSITIVE',
+                            'description': f"{operation} test case: {case_id}",
+                            'operation': operation,
+                            'executed': executed,
+                            'test_type': test_type,
+                            'parameters': params
+                        }
+                        
+                        data[module].append(test_case)
+                    else:
+                        # Generic schema parsing (sp_name)
+                        sp_name = row.get('sp_name', 'unknown')
+                        if sp_name not in data:
+                            data[sp_name] = []
+                        data[sp_name].append(row)
             
             logger.info(f"Successfully loaded test data from {file_path}")
             return data
@@ -235,104 +291,3 @@ class ExcelLoader(BaseLoader):
             logger.error(f"Error loading Excel file: {e}")
             raise
 
-
-class KeywordDrivenLoader(BaseLoader):
-    """Load test data from keyword-driven CSV format.
-    
-    Transforms CSV rows into structured test case objects with operation,
-    execution status, and test type information.
-    """
-    
-    @staticmethod
-    def load(file_path: str) -> Dict[str, Any]:
-        """Load test data from a keyword-driven CSV file.
-        
-        CSV Format:
-        Module | Operation | Test Case ID | Test Type | Executed | test_parameters (JSON string)
-        
-        Args:
-            file_path: Path to the CSV file
-            
-        Returns:
-            Dictionary containing test data keyed by module/SP name
-            
-        Example:
-            usp_CreateUpdateSchedulingTeam,Create,Create_New_Team_01,independent,Yes,"{""name"":""TestTeam""}"
-        """
-        # Ensure .csv extension
-        if not file_path.endswith('.csv'):
-            file_path = f"{file_path}.csv"
-        
-        # Build path if not absolute
-        if not os.path.isabs(file_path):
-            # For root-level files (e.g., keyword_driven_tests.csv at project root)
-            # check root first, then fall back to data_layer/test_data/
-            project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-            
-            # Try root level first
-            candidate_path = os.path.join(project_root, file_path)
-            if not os.path.exists(candidate_path):
-                # Fall back to data_layer/test_data/ for backward compatibility
-                candidate_path = os.path.join(project_root, 'data_layer', 'test_data', file_path)
-            
-            file_path = candidate_path
-        
-        logger.info(f"Loading keyword-driven test data from: {file_path}")
-        
-        if not os.path.isfile(file_path):
-            raise FileNotFoundError(f"Test data file not found: {file_path}")
-        
-        try:
-            data = {}
-            
-            with open(file_path, 'r', encoding='utf-8-sig') as f:
-                reader = csv.DictReader(f)
-                
-                for row in reader:
-                    module = row.get('Module', '').strip()
-                    operation = row.get('Operation', '').strip()
-                    case_id = row.get('Test Case ID', '').strip()
-                    executed = row.get('Executed', 'No').strip().lower() == 'yes'
-                    test_type = row.get('Test Type', 'independent').strip()
-                    params_json = row.get('test_parameters', '{}').strip()
-                    
-                    # Skip if module is empty
-                    if not module:
-                        logger.warning(f"Skipping row with empty Module: {row}")
-                        continue
-                    
-                    # Initialize module entry if not exists
-                    if module not in data:
-                        data[module] = []
-                    
-                    # Parse test parameters JSON
-                    try:
-                        params = json.loads(params_json) if params_json else {}
-                    except json.JSONDecodeError as e:
-                        logger.warning(f"Invalid JSON in test_parameters for {case_id}: {e}")
-                        params = {}
-                    
-                    # Build test case object
-                    test_case = {
-                        'case_id': case_id,
-                        'case_type': operation.upper() if operation else 'POSITIVE',
-                        'description': f"{operation} test case: {case_id}",
-                        'operation': operation,
-                        'executed': executed,
-                        'test_type': test_type,
-                        'parameters': params
-                    }
-                    
-                    data[module].append(test_case)
-            
-            logger.info(f"Successfully loaded keyword-driven test data from {file_path}")
-            logger.info(f"Loaded {len(data)} modules with test cases")
-            
-            return data
-            
-        except csv.Error as e:
-            logger.error(f"CSV parsing error in {file_path}: {e}")
-            raise
-        except Exception as e:
-            logger.error(f"Error loading CSV file: {e}")
-            raise

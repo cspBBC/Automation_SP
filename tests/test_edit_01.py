@@ -1,8 +1,9 @@
 import pytest
 import json
+from config.config import DataConfig
 from test_engine_layer.runner import run_stored_procedures_from_data
 from test_engine_layer.utils import get_test_case_ids_by_operation, verify_preseed_for_module, get_module_for_test_case
-from data_loader_factory import DataLoaderFactory
+from data_loader_factory import TestDataLoader
 from validation_layer.schGroup_validator import (
     getSchdGrpDetails,
     getSchdGrpHistory,
@@ -39,7 +40,7 @@ def create_then_edit_result(db_transaction, request):
     
     expected_team_name = None
     if hasattr(request, 'param'):
-        csv_data = DataLoaderFactory.load('keyword_driven_tests.csv', loader_type='keyword_driven')
+        csv_data = TestDataLoader.load(DataConfig.DEFAULT_TEST_DATA_FILE)
         for cases in csv_data.values():
             for case in cases:
                 if case.get('case_id') == request.param:
