@@ -1,4 +1,4 @@
-"""Test Edit operations - simple keyword-driven approach."""
+"""Test Edit operations using pytest framework."""
 
 import pytest
 from test_engine_layer.runner import run_stored_procedures_from_data
@@ -13,26 +13,20 @@ EDIT_TEST_CASES = get_test_case_ids_by_operation('Edit')
 
 
 @pytest.mark.parametrize("test_case_id", EDIT_TEST_CASES, ids=EDIT_TEST_CASES)
-def test_edit_team(db_transaction, logger, test_case_id):
-    """Execute Edit test case.
-    
-    - Edit tests use team_id created by Create operation
-    - Both operations run in same transaction
-    - Validates team is updated correctly
-    """
+def test_edit_with_any_create(db_transaction, logger, test_case_id):
+    """Execute Edit with ANY enabled Create TC - pick first available."""
+    # Run all tests (will include any enabled Create and this Edit)
+    # Edit will use whichever Create TC is enabled
     result = run_stored_procedures_from_data()
     
-    all_results = []
-    for module_results in result.get('results', {}).values():
-        all_results.extend(module_results)
+    # Results are organized by module -> list of test results
+    module_results = list(result.get('results', {}).values())[0]
     
-    matches = [r for r in all_results if r.get('case_id') == test_case_id]
-    test_result = matches[0] if matches else None
+    # Find the Edit test result
+    edit_result = [r for r in module_results if r.get('case_id') == test_case_id][0]
     
-    assert test_result, f"No result found for test case '{test_case_id}'"
-    
-    status = test_result.get('status', '').upper()
-    team_id = test_result.get('execution_context', {}).get('created_team_id')
+    status = edit_result.get('status', '').upper()
+    team_id = edit_result.get('execution_context', {}).get('created_team_id')
     
     assert status in ['SUCCESS', 'PASSED'], f"Expected success but got {status}"
     assert team_id, f"Edit should return team_id"
