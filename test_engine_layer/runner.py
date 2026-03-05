@@ -132,6 +132,18 @@ def run_stored_procedures(sp_name: str, case_type=None, test_inputs: str = None)
         except Exception as e:
             error_msg = f"Error: {e}"
             logger.error(error_msg)
+            
+            # Check if this is a parameter validation error with details
+            if hasattr(e, '__cause__') and hasattr(e.__cause__, '__class__'):
+                cause_type = e.__cause__.__class__.__name__
+                if 'ParameterValidationError' in str(type(e)):
+                    # Enhanced parameter error from connection module
+                    if hasattr(e, 'parameter_name') and e.parameter_name:
+                        logger.error(f"\n  >>> INVALID PARAMETER: '{e.parameter_name}'")
+                        logger.error(f"  >>> VALUE: {e.value}")
+                        logger.error(f"  >>> ISSUE: {e.message}")
+                        logger.error(f"  >>> ERROR TYPE: {e.error_type}\n")
+            
             logger.error(traceback.format_exc())
             case_passed = False
         

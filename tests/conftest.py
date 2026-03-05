@@ -3,6 +3,7 @@ import datetime
 import pytest
 import logging
 from test_engine_layer.utils import setup_logging, validate_test_configuration
+from validation_layer import verify_preseed_exists
 
 
 setup_logging()  # Initialize logger for all tests
@@ -129,4 +130,45 @@ def capture_stdout_to_file(request, output_dir, capsys):
     if err:
         with open(os.path.join(output_dir, "stderr.txt"), "w", encoding="utf-8") as f:
             f.write(err)
+
+
+@pytest.fixture(autouse=True, scope="session")
+def validate_preseed_data():
+    """Validate all preseed data before any tests run.
+    
+    This fixture runs once per test session to ensure all preconditions
+    (divisions, users, etc.) exist in the database before tests start.
+    """
+    # Get logger directly (can't use function-scoped logger in session fixture)
+    logger = logging.getLogger('sp_validation')
+    
+    logger.info("\n" + "="*80)
+    logger.info("PRESEED VALIDATION - Checking test preconditions...")
+    logger.info("="*80)
+    
+    # Define preseed requirements by module
+    preseed_requirements = {
+        'usp_CreateUpdateSchedulingTeam': [
+            'createSchdGroup_division.sql',
+            'createSchdGroup_user.sql',
+        ]
+    }
+    
+    # Validate each preseed requirement
+    for module, sql_files in preseed_requirements.items():
+        logger.info(f"\nModule: {module}")
+        for sql_file in sql_files:
+            try:
+                verify_preseed_exists(module, sql_file)
+            except AssertionError as e:
+                logger.error(f"\n{'!'*80}")
+                logger.error(f"PRESEED VALIDATION FAILED")
+                logger.error(f"{'!'*80}")
+                logger.error(f"Error: {e}")
+                pytest.exit(f"Preseed validation failed:\n{e}", returncode=1)
+    
+    logger.info("\n" + "="*80)
+    logger.info("✓ PRESEED VALIDATION PASSED - All preconditions met")
+    logger.info("="*80 + "\n")
+
 
