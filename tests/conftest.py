@@ -88,9 +88,8 @@ def setup_execution_logging(request, output_dir):
     
     Parallel-safe: uses pytest-xdist worker ID if available.
     """
-    # Get root logger and set to DEBUG
-    root_logger = logging.getLogger()
-    root_logger.setLevel(logging.DEBUG)
+    # Get the sp_validation logger (tests use this)
+    test_logger = logging.getLogger('sp_validation')
     
     # Get worker ID for parallel execution (empty string if not running in parallel)
     worker_id = getattr(request.config, 'workerinput', {}).get('workerid', 'master')
@@ -106,12 +105,13 @@ def setup_execution_logging(request, output_dir):
     )
     file_handler.setFormatter(formatter)
     
-    root_logger.addHandler(file_handler)
+    # Add file handler directly to sp_validation logger (not root)
+    test_logger.addHandler(file_handler)
     
     yield
     
     file_handler.close()
-    root_logger.removeHandler(file_handler)
+    test_logger.removeHandler(file_handler)
 
 
 @pytest.fixture(autouse=True)

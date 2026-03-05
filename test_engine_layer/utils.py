@@ -42,10 +42,17 @@ def setup_logging():
     logger = logging.getLogger('sp_validation')
     logger.setLevel(logging.DEBUG)
     
-    # Remove existing console handlers to avoid duplicates
-    for handler in logger.handlers[:]:
-        if not isinstance(handler, logging.FileHandler):
-            logger.removeHandler(handler)
+    # Disable propagation to root logger to prevent duplicate messages
+    logger.propagate = False
+    
+    # Check if console handler already exists to avoid duplicates
+    console_handler_exists = any(
+        isinstance(h, logging.StreamHandler) and not isinstance(h, logging.FileHandler)
+        for h in logger.handlers
+    )
+    
+    if console_handler_exists:
+        return logger  # Already configured, don't add another handler
     
     # Console handler with UTF-8 encoding
     console_handler = logging.StreamHandler(sys.stdout)
@@ -178,7 +185,6 @@ def validate_test_configuration(data_file: str = None) -> None:
                     f"  {operation} tests enabled: {', '.join(test_ids)}\n"
                     f"Please enable at least one Create test (Executed=yes) in test data"
                 )
-                logger.error(error_msg)
                 raise AssertionError(error_msg)
     
     # Check 2: Duplicate test requires at least one REGULAR (non-Duplicate) Create
@@ -191,7 +197,6 @@ def validate_test_configuration(data_file: str = None) -> None:
             f"Please enable at least one regular Create test (e.g., Create_New_Schd_Team_01=yes) in test data\n"
             f"  NOTE: Duplicate test MUST use SAME schedulingTeamName and divisionId as the baseline Create test!"
         )
-        logger.error(error_msg)
         raise AssertionError(error_msg)
     
     # Check 3: If Duplicate enabled, verify it has SAME schedulingTeamName and divisionId as baseline Create

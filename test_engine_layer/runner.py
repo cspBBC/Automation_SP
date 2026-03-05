@@ -29,7 +29,7 @@ def load_test_inputs(test_inputs: str) -> Dict[str, Any]:
     Returns:
         Test data dictionary keyed by SP name
     """
-    return DataLoaderFactory.load(test_inputs, format='json')
+    return TestDataLoader.load(test_inputs, format='json')
 
 
 def run_stored_procedures(sp_name: str, case_type=None, test_inputs: str = None) -> Dict[str, Any]:

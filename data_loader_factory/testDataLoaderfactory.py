@@ -3,14 +3,16 @@
 import os
 import logging
 from typing import Dict, Any
-from .loader import (
-    BaseLoader,
+from .fileLoader import (
     JSONLoader,
     CSVLoader,
     ExcelLoader,
 )
 
 logger = logging.getLogger('sp_validation')
+
+# Cache loaded data to avoid redundant file I/O and logging
+_data_cache = {}
 
 
 class TestDataLoader:
@@ -23,9 +25,11 @@ class TestDataLoader:
     CSV files are automatically detected as either:
     - Keyword-driven format (Module/Operation/Test Case ID/etc.)
     - Generic format (sp_name)
+
+    store class inside dict=like a variable
     """
     
-    _LOADERS = {
+    LOADERS = {
         '.json': JSONLoader,
         '.csv': CSVLoader,
         '.xlsx': ExcelLoader,
@@ -84,15 +88,25 @@ class TestDataLoader:
                 ext = '.json'
         
         # Get appropriate loader
-        loader_class = TestDataLoader._LOADERS.get(ext)
+        loader_class = TestDataLoader.LOADERS.get(ext)
         if not loader_class:
-            supported = ', '.join(TestDataLoader._LOADERS.keys())
+            supported = ', '.join(TestDataLoader.LOADERS.keys())
             raise ValueError(f"Unsupported file format: {ext}. Supported formats: {supported}")
+        
+        # Normalize file path for cache key to handle relative/absolute path variations
+        normalized_path = os.path.abspath(file_path) if os.path.exists(file_path) or os.path.exists(os.path.join(os.path.dirname(os.path.abspath(__file__)), file_path)) else file_path.lower()
+        cache_key = (normalized_path, ext)
+        
+        if cache_key in _data_cache:
+            logger.debug(f"Using cached data for: {file_path}")
+            return _data_cache[cache_key]
         
         logger.info(f"Using {loader_class.__name__} for: {file_path}")
         
-        # Load and return data
-        return loader_class.load(file_path)
+        # Load and cache data
+        data = loader_class.load(file_path)
+        _data_cache[cache_key] = data
+        return data
 
 
 # Backward compatibility alias
