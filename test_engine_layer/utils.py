@@ -26,15 +26,7 @@ class Colors:
         """Format text as success (green)."""
         return f"{Colors.GREEN}{Colors.BOLD}{text}{Colors.RESET}"
     
-    @staticmethod
-    def info(text):
-        """Format text as info (blue)."""
-        return f"{Colors.BLUE}{text}{Colors.RESET}"
-    
-    @staticmethod
-    def warn(text):
-        """Format text as warning (yellow)."""
-        return f"{Colors.YELLOW}{text}{Colors.RESET}"
+
 
 
 def setup_logging():
