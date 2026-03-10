@@ -324,9 +324,9 @@ def run_stored_procedures_from_data(filter_executed: bool = True, filter_test_na
             logger.info(f"Module: {module_name} (operations: {sorted(ops)})")
             test_cases = []
 
-            # For each operation, try to load an operation-specific template first
+            # For each operation, try to load an operation-specific template first, then unified template
             for op in sorted(ops):
-                # search order: data_layer/test_data/<module>/template_data/<module>_<op>.json -> legacy paths
+                # search order: data_layer/test_data/<module>/template_data/<module>_<op>.json -> <module>.json -> legacy paths
                 test_data_base = 'data_layer/test_data'
                 module_template_dir = os.path.join(test_data_base, module_name, 'template_data')
                 specific_template = None
@@ -334,7 +334,10 @@ def run_stored_procedures_from_data(filter_executed: bool = True, filter_test_na
                 candidate_paths = []
                 # New modularized structure: data_layer/test_data/{module}/template_data/
                 if os.path.isdir(module_template_dir):
+                    # Try operation-specific template first
                     candidate_paths.append(os.path.join(module_template_dir, f"{module_name}_{op}.json"))
+                    # Then try unified template
+                    candidate_paths.append(os.path.join(module_template_dir, f"{module_name}.json"))
                 # Legacy paths for backward compatibility
                 candidate_paths.append(os.path.join(test_data_base, 'modules', module_name, f"{module_name}_{op}.json"))
                 candidate_paths.append(os.path.join(test_data_base, f"{module_name}_{op}.json"))
@@ -381,7 +384,8 @@ def run_stored_procedures_from_data(filter_executed: bool = True, filter_test_na
             
             for test_case in test_cases:
                 case_id = test_case.get('Test Case ID', 'unknown')
-                logger.info(f"  Executing: {case_id}")
+                operation = test_case.get('Operation', 'Unknown')
+                logger.info(f"  Executing: {case_id} ({operation})")
                 
                 # Inject execution context values into test_case parameters before execution
                 if execution_context and 'chain_config' in test_case:
@@ -393,7 +397,7 @@ def run_stored_procedures_from_data(filter_executed: bool = True, filter_test_na
                 
                 try:
                     if 'chain_config' in test_case and test_case['chain_config']:
-                        executor = SPChainExecutor(connection)
+                        executor = SPChainExecutor(connection, operation=operation)
                         result = executor.execute_chain(test_case['chain_config'], execution_context=execution_context)
                         
                         # Extract execution context from result if available (for chaining operations)
@@ -404,19 +408,36 @@ def run_stored_procedures_from_data(filter_executed: bool = True, filter_test_na
                         
                         # Respect executor result status: mark failed when chain reports failure
                         if isinstance(result, dict) and not result.get('success', True):
+                            error_msg = result.get('error', 'Unknown error')
+                            failed_step = result.get('failed_step', 'Unknown')
+                            sp_message = result.get('sp_message', '')
+                            
+                            logger.error(f"  ✗ TEST FAILED: {case_id}")
+                            logger.error(f"    Failed at step: {failed_step}")
+                            logger.error(f"    Error: {error_msg}")
+                            if sp_message:
+                                logger.error(f"    SP Message: {sp_message}")
+                            
                             module_results.append({
                                 'case_id': case_id,
                                 'Operation': test_case.get('Operation'),
                                 'status': 'FAILED',
-                                'error': result.get('error'),
+                                'error': error_msg,
+                                'failed_step': failed_step,
+                                'sp_message': sp_message,
+                                'expected_status': test_case.get('expected_status'),
+                                'expected_message_pattern': test_case.get('expected_message_pattern'),
                                 'result': result,
                                 'execution_context': execution_context.copy()
                             })
                         else:
+                            logger.info(f"  ✓ TEST PASSED: {case_id}")
                             module_results.append({
                                 'case_id': case_id,
                                 'Operation': test_case.get('Operation'),
                                 'status': 'PASSED',
+                                'expected_status': test_case.get('expected_status'),
+                                'expected_message_pattern': test_case.get('expected_message_pattern'),
                                 'result': result,
                                 'execution_context': execution_context.copy()
                             })
@@ -430,12 +451,19 @@ def run_stored_procedures_from_data(filter_executed: bool = True, filter_test_na
                         })
                 
                 except Exception as e:
-                    logger.error(f"    Failed: {e}")
+                    error_str = str(e)
+                    logger.error(f"  ✗ TEST FAILED (Exception): {case_id}")
+                    logger.error(f"    Exception: {error_str}")
+                    import traceback
+                    logger.debug(traceback.format_exc())
                     module_results.append({
                         'case_id': case_id,
                         'Operation': test_case.get('Operation'),
                         'status': 'FAILED',
-                        'error': str(e)
+                        'error': error_str,
+                        'expected_status': test_case.get('expected_status'),
+                        'expected_message_pattern': test_case.get('expected_message_pattern'),
+                        'exception': True
                     })
             
             all_results[module_name] = module_results

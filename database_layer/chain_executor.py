@@ -10,17 +10,19 @@ logger = logging.getLogger('sp_validation')
 class SPChainExecutor:
     """Execute chained SPs with parameter inheritance and overrides."""
     
-    def __init__(self, connection):
+    def __init__(self, connection, operation=None):
         """Initialize chain executor.
         
         Args:
             connection: Database connection
+            operation: Optional operation name (e.g., 'Create', 'Edit') for filtering steps
         """
         self.connection = connection
         self.execution_results = {}
         self.chain_data = {}
         self.base_parameters = {}
         self.logger_callback = None
+        self.operation = operation
     
     def set_logger(self, callback):
         """Set a callback for logging detailed output to stdout."""
@@ -39,6 +41,7 @@ class SPChainExecutor:
         - Step 2+: Inherits from Step 1, overrides only changed params
         - Stops on first failure and reports error clearly
         - Supports execution_context chaining for dependent operations
+        - Supports operation filtering via operation_filter field in steps
         
         Args:
             chain_config: List of step configurations
@@ -56,6 +59,13 @@ class SPChainExecutor:
             for idx, step_config in enumerate(chain_config):
                 step_num = step_config.get("step", idx + 1)
                 sp_name = step_config["sp_name"]
+                
+                # Check operation filter - skip step if it doesn't apply to current operation
+                operation_filter = step_config.get("operation_filter", "Both")
+                if operation_filter != "Both" and self.operation and operation_filter != self.operation:
+                    self._log(f"\n{'='*80}")
+                    self._log(f"[CHAIN STEP {step_num}] Skipped (operation_filter='{operation_filter}', current_operation='{self.operation}')")
+                    continue
                 
                 self._log(f"\n{'='*80}")
                 self._log(f"[CHAIN STEP {step_num}] Executing {sp_name}...")
@@ -77,7 +87,8 @@ class SPChainExecutor:
                     self._log(f"[STEP {step_num}] FAILED: {step_message}")
                     return {
                         "success": False,
-                        "error": step_message,
+                        "error": f"Step {step_num} failed",
+                        "sp_message": step_message,
                         "failed_step": step_num,
                         "partial_results": self.execution_results,
                         "chain_data": self.chain_data

@@ -81,7 +81,9 @@ class KeywordDrivenCSVLoader(BaseLoader):
                         'operation': operation,
                         'executed': executed,
                         'test_type': test_type,
-                        'parameters': params
+                        'parameters': params,
+                        'expected_status': row.get('expected_status', '').strip(),
+                        'expected_message_pattern': row.get('expected_message_pattern', '').strip()
                     }
                     
                     data[module].append(test_case)

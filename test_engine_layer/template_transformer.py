@@ -98,6 +98,16 @@ class TemplateTransformer:
                 populated_case['Operation'] = test_case.get('operation', '')
                 populated_case['Test Case ID'] = test_case.get('case_id', '')
                 
+                # Preserve CSV columns for validation (from expected_result CSV column)
+                if test_case.get('expected_status'):
+                    populated_case['expected_status'] = test_case.get('expected_status')
+                if test_case.get('expected_result'):
+                    populated_case['expected_result'] = test_case.get('expected_result')
+                if test_case.get('expected_message_pattern'):
+                    populated_case['expected_message_pattern'] = test_case.get('expected_message_pattern')
+                if test_case.get('test_description'):
+                    populated_case['test_description'] = test_case.get('test_description')
+                
                 transformed_cases.append(populated_case)
                 logger.debug(f"Populated test case: {test_case.get('case_id')}")
             

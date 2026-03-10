@@ -8,6 +8,7 @@
         {
           "step": 1,
           "sp_name": "usp_CreateUpdateSchedulingTeam",
+          "operation_filter": "Edit",
           "input_mapping": {
             "@intnewteamid": "created_team_id"
           },
@@ -55,8 +56,8 @@
             "@staffAvailabilityReportStartDate": "{staffAvailabilityReportStartDate}",
             "@task": "edit",
             "@tab": "identity",
-            "@intnewteamid": "{intnewteamid}",
             "@intuserid": "{intuserid}",
+            "@intnewteamid": 0,
             "@email": "{email}",
             "@defaultActiveCode": "{defaultActiveCode}",
             "@IsRestrictCopyDuty": "{IsRestrictCopyDuty}",
@@ -70,6 +71,7 @@
         {
           "step": 2,
           "sp_name": "usp_CreateUpdateSchedulingTeam",
+          "operation_filter": "Edit",
           "input_mapping": {
             "@intnewteamid": "created_team_id"
           },
@@ -117,8 +119,8 @@
             "@staffAvailabilityReportStartDate": "{staffAvailabilityReportStartDate}",
             "@task": "edit",
             "@tab": "allocations",
-            "@intnewteamid": "{intnewteamid}",
             "@intuserid": "{intuserid}",
+            "@intnewteamid": 0,
             "@email": "{email}",
             "@defaultActiveCode": "{defaultActiveCode}",
             "@IsRestrictCopyDuty": "{IsRestrictCopyDuty}",
@@ -132,6 +134,7 @@
         {
           "step": 3,
           "sp_name": "usp_CreateUpdateSchedulingTeam",
+          "operation_filter": "Edit",
           "input_mapping": {
             "@intnewteamid": "created_team_id"
           },
@@ -179,8 +182,8 @@
             "@staffAvailabilityReportStartDate": "{staffAvailabilityReportStartDate}",
             "@task": "edit",
             "@tab": "miscellaneous",
-            "@intnewteamid": "{intnewteamid}",
             "@intuserid": "{intuserid}",
+            "@intnewteamid": 0,
             "@email": "{email}",
             "@defaultActiveCode": "{defaultActiveCode}",
             "@IsRestrictCopyDuty": "{IsRestrictCopyDuty}",

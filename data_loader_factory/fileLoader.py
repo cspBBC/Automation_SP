@@ -156,6 +156,11 @@ class CSVLoader(BaseLoader):
                         test_type = row.get('Test Type', 'independent').strip()
                         params_json = row.get('test_parameters', '{}').strip()
                         
+                        # Extract validation fields from CSV (expected_status, expected_result, etc.)
+                        expected_status = row.get('expected_status', '').strip()
+                        expected_result = row.get('expected_result', '').strip()
+                        test_description = row.get('test_description', '').strip()
+                        
                         # Skip if module is empty
                         if not module:
                             logger.warning(f"Skipping row with empty Module: {row}")
@@ -180,7 +185,11 @@ class CSVLoader(BaseLoader):
                             'operation': operation,
                             'executed': executed,
                             'test_type': test_type,
-                            'parameters': params
+                            'parameters': params,
+                            'expected_status': expected_status,
+                            'expected_result': expected_result,
+                            'expected_message_pattern': expected_result,  # Map expected_result to expected_message_pattern for validation
+                            'test_description': test_description
                         }
                         
                         data[module].append(test_case)
