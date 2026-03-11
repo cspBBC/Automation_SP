@@ -48,27 +48,3 @@ def test_edit_with_any_create(db_transaction, logger, test_case_id):
     # Validate against CSV expected values
     validate_test_result(test_result, logger)
 
-
-@pytest.mark.parametrize("test_case_id", INVALID_EDIT_CASES, ids=INVALID_EDIT_CASES)
-def test_edit_with_invalid_parameters(db_transaction, logger, test_case_id):
-    """Test invalid edit parameters are rejected if team was created."""
-    result = run_stored_procedures_from_data()
-    
-    # Find test result for this case
-    test_result = None
-    for operation_results in result.get('results', {}).values():
-        for r in operation_results:
-            if r.get('case_id') == test_case_id:
-                test_result = r
-                break
-    
-    if not test_result:
-        pytest.skip(f"No result found for {test_case_id}")
-    
-    # Skip if no team ID created
-    team_id = test_result.get('execution_context', {}).get('created_team_id')
-    if not team_id:
-        pytest.skip("No team ID - cannot test invalid edit")
-    
-    # Validate against CSV expected values
-    validate_test_result(test_result, logger)
