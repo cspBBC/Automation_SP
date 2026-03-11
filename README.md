@@ -5,6 +5,66 @@ This is a **keyword-driven test framework** that executes database stored proced
 
 ---
 
+## Quick Start: Clone & Execute Framework
+
+### Step 1: Clone the Repository
+```bash
+git clone <repository-url>
+cd Automation_SP
+```
+
+### Step 2: Install Python Dependencies
+```bash
+python -m pip install -r requirements.txt
+```
+
+This installs:
+- `pytest` - Test runner
+- `pyodbc` - Database connectivity
+- `python-dotenv` - Environment variable management
+- `PyYAML` - YAML parsing
+- `openpyxl` - Excel file support
+
+### Step 3: Configure Database Connection
+Create a `.env` file in the root directory with your database credentials:
+```
+DB_HOST=your_server_name
+DB_USER=your_username
+DB_PASSWORD=your_password
+DB_NAME=your_database_name
+```
+
+See `config/config.py` for all available configuration options.
+
+### Step 4: Run Tests
+**Run all tests:**
+```bash
+python -m pytest
+```
+
+**Run tests from a specific file:**
+```bash
+python -m pytest tests/test_create_01.py -v
+```
+
+**Run a specific test case:**
+```bash
+python -m pytest tests/test_create_01.py::test_create_team[Create_New_Schd_Team_01] -v
+```
+
+**Run with parallel execution (multiple workers):**
+```bash
+python -m pytest -n auto
+```
+
+### Step 5: Check Test Results
+Test execution creates:
+- Console output with pass/fail results
+- Transaction rollback ensures database isolation (no test data left behind)
+- CSV validation reports in `data_layer/test_data/`
+
+---
+
 ## Section 1: Detailed Test Execution Walkthrough
 
 ### Test Case Example: `test_create_team[Create_New_Schd_Team_01]`
