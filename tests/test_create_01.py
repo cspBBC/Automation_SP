@@ -22,8 +22,21 @@ def validate_test_result(test_result, logger):
     actual_message = test_result.get('sp_message', '') or test_result.get('error', '')
     case_id = test_result.get('case_id', 'unknown')
     
-    # Validate message pattern (if specified in CSV and there's an actual message to check)
-    if expected_pattern and actual_message:
+    if not expected_pattern:
+        logger.info(f"✓ {case_id} validated (no expected pattern)")
+        return
+    
+    # Determine if we're expecting an error or success based on expected pattern
+    error_keywords = ['invalid', 'error', 'required', 'already exists', 'duplicate', 'failed']
+    expects_error = any(kw in expected_pattern.lower() for kw in error_keywords)
+    
+    if expects_error:
+        # For error/validation tests, SP MUST return an error message
+        assert actual_message, (f"{case_id}: Expected error [{expected_pattern}] but SP succeeded "
+                               f"(no error message returned)")
+    
+    # If there's an actual message, validate it matches the expected pattern
+    if actual_message:
         patterns = [p.strip() for p in expected_pattern.split('|')]
         match = any(p.lower() in actual_message.lower() for p in patterns)
         assert match, f"{case_id}: Expected [{expected_pattern}] but got: {actual_message}"
