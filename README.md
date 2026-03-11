@@ -1,698 +1,1794 @@
-# Testing Framework - Complete E2E Documentation
+# Scheduling Platform Validation Framework
 
-This directory contains a comprehensive test harness for validating SQL stored procedures (SPs). This document explains every piece of the framework, how they work together, and walks through a real example line-by-line.
-
----
-
-## 📋 Table of Contents
-
-1. [Framework Architecture](#framework-architecture)
-2. [Directory Structure](#directory-structure)
-3. [Core Components Explained](#core-components-explained)
-4. [E2E Workflow with Example](#e2e-workflow-with-example)
-5. [Data Structures & Return Types](#data-structures--return-types)
-6. [Usage Guide](#usage-guide)
+## Overview
+This is a **keyword-driven test framework** that executes database stored procedures, validates results, and maintains test isolation using transactions. It supports parallel execution and works with multiple data formats (CSV, XLSX, JSON).
 
 ---
 
-## Framework Architecture
+## Section 1: Detailed Test Execution Walkthrough
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                     TEST RUNNER                              │
-│         (NP036_SP_run.py or any user script)                │
-│  test_stored_procedures('usp_Name', TestCaseType, filename) │
-└────┬────────────────────────────────────────────────────────┘
-     │
-     ▼
-┌─────────────────────────────────────────────────────────────┐
-│              LOAD TEST INPUTS (sp_test_utils.py)            │
-│  load_test_inputs(filename) → Returns Dict from JSON file   │
-└────┬────────────────────────────────────────────────────────┘
-     │
-     ▼
-┌─────────────────────────────────────────────────────────────┐
-│              FILTER TEST CASES (sp_test_utils.py)           │
-│  • Find SP name in loaded dict                              │
-│  • Filter by case_type (POSITIVE/NEGATIVE/EDGE)            │
-│  • Extract matching test cases array                        │
-└────┬────────────────────────────────────────────────────────┘
-     │
-     ▼
-┌─────────────────────────────────────────────────────────────┐
-│            DETECT & EXECUTE TEST (sp_test_utils.py)         │
-│  • Single execution: run_stored_procedure()                │
-│  • Chained execution: SPChainExecutor.execute_chain()      │
-│  • Print results & errors                                   │
-└─────────────────────────────────────────────────────────────┘
+### Test Case Example: `test_create_team[Create_New_Schd_Team_01]`
+
+Let's trace **exactly** what happens when you run:
+```bash
+pytest tests/test_create_01.py::test_create_team[Create_New_Schd_Team_01] -v
 ```
 
 ---
 
-## Directory Structure
+### **Step 0: Before pytest Runs (Test Discovery)**
 
-```
-tests/
-├── __init__.py                          # Package marker
-├── NP036_SP_run.py                      # EXAMPLE: Test runner script
-├── test_data/
-│   ├── test_inputs.json                 # DEFAULT: Test cases JSON
-│   └── test_inputs1.json                # CUSTOM: Alternative test cases JSON
-├── enums/
-│   ├── __init__.py                      # Package marker
-│   └── test_enums.py                    # Defines TestCaseType enum
-├── helpers/
-│   ├── __init__.py                      # Package marker
-│   └── sp_test_utils.py                 # CORE: Main testing utilities
-└── __pycache__/                         # Python bytecode cache
-```
+**What pytest does:**
+- Scans `tests/` folder for test files
+- Finds `test_create_01.py`
+- Reads the parametrized test decorator: `@pytest.mark.parametrize("test_case_id", CREATE_TEST_CASES, ids=CREATE_TEST_CASES)`
 
----
+**Where does CREATE_TEST_CASES come from?**
 
-## Core Components Explained
-
-### 1. **test_enums.py** - Test Case Type Definitions
-
-**Purpose:** Define categories of test cases to organize and filter tests.
-
-**What it contains:**
+📁 **File: [tests/test_create_01.py](tests/test_create_01.py#L12)**
 ```python
-from enum import Enum
-
-class TestCaseType(Enum):
-    POSITIVE = "POSITIVE"      # Tests that should succeed normally
-    NEGATIVE = "NEGATIVE"      # Tests that should fail gracefully  
-    EDGE = "EDGE"              # Boundary/edge case tests
+# Line 12
+CREATE_TEST_CASES = [tc for tc in get_test_case_ids_by_operation('Create') if 'Duplicate' not in tc]
 ```
 
-**Why it exists:**
-- Provides a standardized way to categorize tests
-- Prevents typos (using enum instead of strings)
-- Makes it easy to run only certain test types (e.g., all POSITIVE tests)
-- Improves code clarity and maintainability
+- **Input**: Calls function `get_test_case_ids_by_operation('Create')`
+- **Process**: Filters to get only 'Create' operations (removes 'Duplicate' tests)
+- **Output**: List like `['Create_New_Schd_Team_01', 'Create_New_Schd_Team_02']` (only enabled ones from test data)
 
-**Meaning of each type:**
-- **POSITIVE**: Expected happy-path scenarios. SP should execute successfully and return valid results
-- **NEGATIVE**: Invalid inputs or error conditions. SP should handle gracefully with error messages
-- **EDGE**: Boundary values, extreme cases (MAX int, empty strings, NULL values, etc.)
+**Where is this function defined?**
 
----
-
-### 2. **test_inputs.json / test_inputs1.json** - Test Case Data
-
-**Purpose:** Define what parameters to pass to each stored procedure and what to expect.
-
-**Structure (JSON format):**
-```json
-{
-  "usp_CreateUpdateSchedulingTeam": [
-    {
-      "case_id": "POSITIVE_CHAIN_CREATE_UPDATE_VALIDATE",
-      "case_type": "POSITIVE",
-      "description": "3-step chain: Create team, update allocations, update miscellaneous",
-      "chain_config": [
-        {
-          "step": 1,
-          "sp_name": "usp_CreateUpdateSchedulingTeam",
-          "parameters": {
-            "@schedulingTeamName": "AutoTest_20260227_181957_457",
-            "@divisionId": 6,
-            ...
-          },
-          "output_mapping": {
-            "@intnewteamid": "created_team_id"
-          }
-        },
-        {
-          "step": 2,
-          "sp_name": "usp_UpdateAllocation",
-          ...
-        }
-      ]
-    },
-    {
-      "case_id": "POSITIVE_SINGLE",
-      "case_type": "POSITIVE",
-      "description": "Simple single SP execution",
-      "parameters": {
-        "@schedulingTeamName": "Team1",
-        "@divisionId": 1,
-        ...
-      }
-    }
-  ]
-}
-```
-
-**Field Meanings:**
-- **Top-level keys** (e.g., `"usp_CreateUpdateSchedulingTeam"`): Stored procedure names that become the test groups
-- **Array of test cases**: Each SP can have multiple test cases of different types
-- **case_id**: Unique identifier for this specific test case (e.g., "POSITIVE_CHAIN_CREATE_UPDATE_VALIDATE")
-- **case_type**: Must match enum (POSITIVE, NEGATIVE, or EDGE) - used to filter tests
-- **description**: Human-readable explanation of what this test validates
-- **parameters**: Named parameters (@param_name) to pass to SP (used for single execution)
-- **chain_config**: Array of sequential SP steps (used for chained execution). Each step:
-  - **step**: Numeric order (1, 2, 3...)
-  - **sp_name**: Which SP to call in this step
-  - **parameters**: Parameters for this SP (can reference outputs from previous steps)
-  - **output_mapping**: Maps SP output parameters to chain variables (key = SP param, value = chain variable name)
-
-**Why this structure:**
-- All test data in one file, no code changes needed to add tests
-- Supports both single and chained SP executions
-- Named parameters make large parameter lists readable
-- Output mapping allows passing results between chained SPs
-
----
-
-### 3. **sp_test_utils.py** - Core Testing Engine
-
-**Purpose:** Load test data, execute SPs, and report results.
-
-#### **Function 1: load_test_inputs(test_inputs)**
-
+📁 **File: [test_engine_layer/utils.py](test_engine_layer/utils.py)**
 ```python
-def load_test_inputs(test_inputs):
-    """Load test inputs from JSON file in tests/test_data folder.
+def get_test_case_ids_by_operation(operation):
+    """
+    Input:  operation = 'Create' (string)
+    Output: ['Create_New_Schd_Team_01', 'Create_New_Schd_Team_02'] (list of test case IDs)
     
-    Args:
-        test_inputs: Filename without extension (e.g., 'users_tests', 'shekjar', 'schgrp_fta').
-                    MANDATORY - must be provided.
-                    Function automatically appends .json extension.
+    Process:
+    1. Calls load_test_data() to read test data file
+    2. Filters rows where Executed='yes' AND Operation='Create'
+    3. Extracts the 'Test Case ID' column
+    4. Returns as list
     """
 ```
 
-**What it does:**
-1. Takes a filename (e.g., `"test_inputs1"`)
-2. Constructs full path: `tests/test_data/test_inputs1.json`
-3. Reads and parses the JSON file
-4. Returns it as a Python dictionary
+**Where does it load test data from?**
 
-**Return type:** `dict`
+📁 **File: [keyword_driven_tests.csv](keyword_driven_tests.csv)** (or XLSX/JSON)
 
-**Example:**
+Current enabled test cases:
+```
+Module                          | Operation | Test Case ID           | Executed | test_description                  | test_parameters
+usp_CreateUpdateSchedulingTeam  | Create    | Create_New_Schd_Team_01| yes      | Create_Team_With_Default_Perms    | {...json...}
+usp_CreateUpdateSchedulingTeam  | Create    | Create_Duplicate_Team_01| yes     | Create_Duplicate_Team_Should_Fail | {...json...} (EXCLUDED - has 'Duplicate')
+usp_CreateUpdateSchedulingTeam  | Create    | Create_New_Schd_Team_02| no       | Create_Team_For_Edit_Workflow     | {...json...}
+usp_CreateUpdateSchedulingTeam  | Edit      | Update_Schd_Team_02    | no       | Edit_Team_From_Create_02          | {...json...}
+```
+
+**Result**: `CREATE_TEST_CASES = ['Create_New_Schd_Team_01']` (only enabled, no Duplicates)
+
+pytest now knows it will run the test **once** with parameter `test_case_id = 'Create_New_Schd_Team_01'`
+
+---
+
+### **Step 1: pytest Initialization Hook (`pytest_configure`)**
+
+**When**: Before ANY test runs (immediately after discovery)
+
+**File: [tests/conftest.py](tests/conftest.py)**
 ```python
-result = load_test_inputs('test_inputs1')
-# Returns:
+def pytest_configure(config):
+    """
+    Input:  config = pytest configuration object
+    
+    Process:
+    1. Call validate_test_configuration()
+    2. Auto-detect number of CPU workers
+    3. Set CI/parallel mode
+    
+    Output: 
+    - Either: All validations pass → Framework ready
+    - Or: Raises error → pytest exits with code 1 (test doesn't even start)
+    """
+```
+
+**What happens in validate_test_configuration()?**
+
+📁 **File: [test_engine_layer/utils.py](test_engine_layer/utils.py)**
+```python
+def validate_test_configuration():
+    """
+    Input: None (reads from test data file)
+    
+    Output: Either passes silently OR raises ConfigurationError
+    
+    3-Part Validation:
+    ─────────────────
+    
+    CHECK 1: Edit Tests Require A Create Test
+    ──────────────────────────────────────────
+    If any Edit test is enabled (Executed=yes):
+        → At least ONE Create test must be enabled
+        → If not → Error: "Please enable at least one Create test..."
+    
+    CHECK 2: Duplicate Tests Require Regular Create
+    ───────────────────────────────────────────────
+    If Duplicate test is enabled (Executed=yes):
+        → At least ONE regular Create (non-Duplicate) must be enabled
+        → If not → Error: "Please enable at least one regular Create test..."
+    
+    CHECK 3: Duplicate Parameters Must Match Baseline Create
+    ─────────────────────────────────────────────────────────
+    If Duplicate test is enabled:
+        → Find first enabled regular Create (baseline)
+        → Extract: schedulingTeamName, divisionId from both
+        → If they DON'T match → Error with details showing mismatch
+    
+    Current Example Status: ✅ PASS
+    - Create_New_Schd_Team_01: enabled ✓
+    - Create_Duplicate_Team_01: enabled + matches Create_New_Schd_Team_01 ✓
+    """
+```
+
+**In our case**: All validations ✅ PASS → pytest continues to run tests
+
+---
+
+### **Step 2: Test Execution Starts (pytest_runtest_setup)**
+
+**When**: Immediately before the test function runs
+
+**File: [tests/conftest.py](tests/conftest.py)** - Fixture injection
+```python
+@pytest.fixture
+def db_transaction(request):
+    """
+    Input:  request = pytest request object (provides test metadata)
+    
+    Output: SQLAlchemy transaction object
+    
+    What happens:
+    1. Establish database connection
+    2. START transaction (begin())
+    3. Yield control to test function (test runs here)
+    4. After test finishes:
+       → ROLLBACK transaction (auto-cleanup)
+       → Database is back to original state
+    
+    Why: Isolation! Each test starts with clean database
+    """
+
+@pytest.fixture
+def logger(request):
+    """
+    Input:  request = pytest request object
+    
+    Output: Python logger object (logging.getLogger('sp_validation'))
+    
+    What this logger does:
+    - Writes to file: output/tests/test_create_01.py/.../execution_gw0.log
+    - Also prints to console if -v flag used
+    - Worker-safe: gw0, gw1, etc. for parallel runs
+    """
+
+@pytest.fixture
+def output_dir(request):
+    """
+    Input:  request = pytest request object
+    
+    Output: Path like 'output/tests/test_create_01.py/test_create_team[Create_New_Schd_Team_01]/'
+    
+    What it does:
+    - Creates unique directory for this test
+    - Stores: stdout.txt, stderr.txt, execution logs
+    """
+```
+
+**These 3 fixtures are injected into test function as parameters:**
+```python
+def test_create_team(db_transaction, logger, test_case_id):
+    # Now test has access to:
+    # - db_transaction: Isolated database connection
+    # - logger: File + console logging
+    # - test_case_id: 'Create_New_Schd_Team_01' (from parametrize)
+```
+
+---
+
+### **Step 3: Test Function Executes**
+
+**File: [tests/test_create_01.py#L15-L41](tests/test_create_01.py#L15-L41)**
+
+```python
+def test_create_team(db_transaction, logger, test_case_id):
+    """Execute Create test case."""
+    # test_case_id = 'Create_New_Schd_Team_01'
+    
+    # Line 19: Get module name
+    module = get_module_for_test_case(test_case_id)
+    # Input: 'Create_New_Schd_Team_01'
+    # Output: 'usp_CreateUpdateSchedulingTeam' (from test data row)
+    
+    # Line 20: Log start
+    logger.info(f"\nExecuting: {test_case_id}")
+    # Output: Console + File: "Executing: Create_New_Schd_Team_01"
+    
+    # Line 22: RUN THE STORED PROCEDURE
+    result = run_stored_procedures_from_data(filter_test_name=test_case_id)
+    # ⚠️ THIS IS THE BIG ONE - See Step 4 below
+```
+
+---
+
+### **Step 4: Run Stored Procedures (Core Logic)**
+
+**File: [test_engine_layer/runner.py](test_engine_layer/runner.py)**
+
+```python
+def run_stored_procedures_from_data(filter_test_name=None):
+    """
+    Input:
+    ──────
+    filter_test_name = 'Create_New_Schd_Team_01'
+    
+    Process:
+    ────────
+    1. Load test data from file
+    2. Parse JSON parameters from test_parameters column
+    3. Fetch stored procedure name from Module column
+    4. Call procedure with parameters
+    5. Capture result (status, message, created_id, etc.)
+    6. Return nested dictionary
+    
+    Output:
+    ───────
+    {
+        'results': {
+            'usp_CreateUpdateSchedulingTeam': [
+                {
+                    'case_id': 'Create_New_Schd_Team_01',
+                    'status': 'SUCCESS',
+                    'message': 'Scheduling Team created',
+                    'execution_context': {
+                        'created_team_id': 12345
+                    }
+                }
+            ]
+        }
+    }
+    """
+```
+
+**Behind the scenes - Step 4a: Load Test Data**
+
+```python
+# In run_stored_procedures_from_data():
+
+# 1. Call load_test_data()
+data = load_test_data()
+
+# Input: None (auto-detects file: keyword_driven_tests.csv, .xlsx, or .json)
+# Output: DataFrame with columns:
+#         [Module, Operation, Test Case ID, Executed, test_description, test_parameters]
+
+# 2. Filter by test_case_id
+row = data[data['Test Case ID'] == 'Create_New_Schd_Team_01'].iloc[0]
+
+# Extracts:
+row['Module']           # 'usp_CreateUpdateSchedulingTeam'
+row['test_parameters']  # '{"schedulingTeamName":"tst automation schd grwp11",...}'
+```
+
+**Step 4b: Parse Parameters**
+
+```python
+# In run_stored_procedures_from_data():
+
+import json
+
+params_json = row['test_parameters']
+# Input: '{"schedulingTeamName":"tst automation schd grwp11","divisionId":6,...}'
+
+params_dict = json.loads(params_json)
+# Output: Dictionary:
 # {
-#   "usp_CreateUpdateSchedulingTeam": [
-#     {"case_id": "...", "case_type": "...", ...},
-#     {...}
-#   ],
-#   "usp_GetUsers": [...]
+#     'schedulingTeamName': 'tst automation schd grwp11',
+#     'divisionId': 6,
+#     'isActive': 1,
+#     'defaultSicknessHoursAllocation': 1,
+#     ... (50+ more parameters)
 # }
 ```
 
-**Why it exists:**
-- Centralizes JSON loading logic
-- Makes filenames flexible (no hardcoding paths)
-- Automatically appends `.json` extension (convenience)
-- Handles file not found errors gracefully
-
----
-
-#### **Function 2: test_stored_procedures(sp_name, case_type, test_inputs)**
+**Step 4c: Call Database Stored Procedure**
 
 ```python
-def test_stored_procedures(sp_name, case_type=None, test_inputs=None):
+# In procedure_executor.py:
+
+def execute_procedure(procedure_name, parameters, db_transaction):
     """
-    Run test cases from JSON matching the given stored procedure name.
+    Input:
+    - procedure_name: 'usp_CreateUpdateSchedulingTeam'
+    - parameters: {all the fields from JSON}
+    - db_transaction: SQLAlchemy connection (in transaction)
     
-    Args:
-        sp_name: Name of the stored procedure (e.g., 'usp_CreateUpdateSchedulingTeam')
-        case_type: TestCaseType enum member (POSITIVE, NEGATIVE, EDGE) or string
-        test_inputs: Filename without extension (e.g., 'users_tests', 'shekjar', 'schgrp_fta').
-                    MANDATORY - must be provided.
-    """
-```
-
-**What it does (step-by-step):**
-
-1. **Load JSON:** `test_data = load_test_inputs(test_inputs)`
-   - Calls load_test_inputs to get the full test data dictionary
-
-2. **Find SP tests:** Check if `sp_name` exists in `test_data`
-   - If not found, print error message and return
-
-3. **Extract test cases:** `test_cases = test_data[sp_name]`
-   - Gets array of all test cases for this SP
-   - Example: `test_data['usp_CreateUpdateSchedulingTeam']` returns the array of test cases
-
-4. **Filter by type:** If case_type provided, filter test_cases
-   - Keeps only test cases where `case_type` matches (POSITIVE, NEGATIVE, EDGE)
-   - Converts enum `.name` to uppercase for comparison
-
-5. **Iterate and execute:** For each test case:
-   - Extract metadata (case_id, description, etc.)
-   - Print separator and test info
-   - Detect execution type:
-     - **If has 'chain_config'**: Call `_execute_chain_test()`
-     - **If has 'parameters'**: Call `_execute_single_test()`
-   - Print results or errors
-
-**Return type:** `None` (prints to console, raises exceptions on error)
-
-**Example flow:**
-```python
-test_stored_procedures('usp_CreateUpdateSchedulingTeam', TestCaseType.POSITIVE, 'test_inputs1')
-# Step 1: Load test_inputs1.json
-# Step 2: Find 'usp_CreateUpdateSchedulingTeam' in loaded dict ✓ Found
-# Step 3: Get all test cases for this SP (array)
-# Step 4: Filter to only POSITIVE type test cases
-# Step 5: For each POSITIVE case:
-#   - Print case info
-#   - Detect if single or chain execution
-#   - Execute and print results
-```
-
----
-
-#### **Function 3: _execute_single_test(sp_name, parameters)**
-
-```python
-def _execute_single_test(sp_name, parameters):
-    """Execute a single SP test."""
-```
-
-**What it does:**
-1. Calls `run_stored_procedure(sp_name, parameters)` from core.db.procedures
-2. Receives result (list of rows or None)
-3. Prints results in formatted output
-
-**Return type:** `None` (prints output)
-
-**What run_stored_procedure returns:** 
-- List of database rows (tuples or named tuples) if SP has SELECT statements
-- Empty list if no results
-- None if SP has no output
-
----
-
-#### **Function 4: _execute_chain_test(chain_config)**
-
-```python
-def _execute_chain_test(chain_config):
-    """Execute a chained SP test."""
-```
-
-**What it does:**
-1. Gets database connection
-2. Creates SPChainExecutor instance
-3. Calls `executor.execute_chain(chain_config)`
-4. Prints success or failure with details
-
-**chain_config structure:**
-```python
-chain_config = [
-  {
-    "step": 1,
-    "sp_name": "usp_Create",
-    "parameters": {...},
-    "output_mapping": {"@outParam": "chain_var_name"}
-  },
-  {
-    "step": 2,
-    "sp_name": "usp_Update",
-    "parameters": {...}  # Can reference chain variables from step 1
-  }
-]
-```
-
-**SPChainExecutor.execute_chain() return type:** `dict`
-```python
-{
-  'success': True/False,           # Whether ALL steps succeeded
-  'failed_step': 1,                # Which step failed (if any)
-  'error': 'Error message',        # Error description
-  'chain_data': {                  # Data passed between steps
-    'created_team_id': 123,
-    'team_name': 'AutoTest_...'
-  },
-  'partial_results': {             # Results from steps before failure
-    'step_1': {'rows': [...]},
-    'step_2': {'rows': [...]}
-  }
-}
-```
-
-**Why this exists:**
-- Real-world testing often needs multiple related SP calls in sequence
-- Step 1 creates data, Step 2 updates it, Step 3 validates it
-- Need to capture outputs from earlier steps and pass to later steps
-- Need to track which step failed if there's an error
-
----
-
-## E2E Workflow with Example
-
-### **Real Example: NP036_SP_run.py**
-
-```python
-from tests.helpers.sp_test_utils import test_stored_procedures
-from tests.enums.test_enums import TestCaseType
-
-test_stored_procedures('usp_CreateUpdateSchedulingTeam', TestCaseType.POSITIVE, "test_inputs1")
-```
-
-### **Line-by-Line Execution:**
-
-**Line 1-2: Imports**
-```python
-from tests.helpers.sp_test_utils import test_stored_procedures
-```
-- Imports the main test function from sp_test_utils.py
-- This function coordinates the entire testing workflow
-
-```python
-from tests.enums.test_enums import TestCaseType
-```
-- Imports the enum with test case type definitions (POSITIVE, NEGATIVE, EDGE)
-- Ensures type-safe filtering
-
-**Line 4: Execute**
-```python
-test_stored_procedures('usp_CreateUpdateSchedulingTeam', TestCaseType.POSITIVE, "test_inputs1")
-```
-
-### **What Happens Inside:**
-
-#### **Step 1: Load Test Data**
-```python
-test_data = load_test_inputs("test_inputs1")  # Load tests/test_data/test_inputs1.json
-```
-- File is parsed into Python dictionary:
-```python
-{
-  "usp_CreateUpdateSchedulingTeam": [
+    Process:
+    1. Build SQL: EXECUTE usp_CreateUpdateSchedulingTeam @param1=val1, @param2=val2, ...
+    2. Execute on database
+    3. Wait for result
+    4. Capture return value
+    5. Extract created_team_id from output parameters
+    
+    Output:
     {
-      "case_id": "POSITIVE_CHAIN_CREATE_UPDATE_VALIDATE",
-      "case_type": "POSITIVE",
-      "description": "3-step chain: Create team, update allocations...",
-      "chain_config": [...]
+        'status': 'SUCCESS',
+        'message': 'Scheduling Team created successfully',
+        'created_team_id': 12345,  # Generated by database
+        'execution_time_ms': 234
     }
-  ]
-}
+    """
 ```
 
-#### **Step 2: Verify SP Exists in Test Data**
-```python
-sp_name = 'usp_CreateUpdateSchedulingTeam'
-if sp_name not in test_data:  # Check if this SP has test cases
-    print("No test cases found...")
-    return
-# ✓ FOUND - proceed
-```
+**What the stored procedure does (Database side):**
+```sql
+-- usp_CreateUpdateSchedulingTeam
+-- Input: schedulingTeamName='tst automation schd grwp11', divisionId=6, ... (50+ params)
 
-#### **Step 3: Extract Test Cases for This SP**
-```python
-test_cases = test_data['usp_CreateUpdateSchedulingTeam']
-# Result: Array with 1 test case object
-# [
-#   {
-#     "case_id": "POSITIVE_CHAIN_CREATE_UPDATE_VALIDATE",
-#     "case_type": "POSITIVE",
-#     "chain_config": [...]
-#   }
-# ]
-```
-
-#### **Step 4: Filter by Case Type**
-```python
-case_type = TestCaseType.POSITIVE  # Enum member
-normalized = case_type.name.upper()  # Convert to "POSITIVE"
-
-# Filter: keep only cases where case_type == "POSITIVE"
-test_cases = [tc for tc in test_cases 
-             if tc.get('case_type', '').upper() == normalized]
-# Result: Keeps the 1 POSITIVE test case (same as before in this example)
-```
-
-#### **Step 5: Iterate and Execute**
-```python
-for idx, test_case in enumerate(test_cases, 1):
-    # idx=1, test_case = {"case_id": "...", "case_type": "POSITIVE", ...}
+PROCEDURE usp_CreateUpdateSchedulingTeam
+AS
+BEGIN
+    -- 1. Validate inputs
+    IF EXISTS (SELECT 1 FROM SchedulingTeam 
+               WHERE schedulingTeamName = @schedulingTeamName 
+               AND divisionId = @divisionId)
+        RETURN 'ERROR: Duplicate team name'
     
-    case_id = test_case.get('case_id', f'case_{idx}')  # "POSITIVE_CHAIN_CREATE_UPDATE_VALIDATE"
-    case_type_label = test_case.get('case_type', 'unknown')  # "POSITIVE"
-    description = test_case.get('description', '')  # "3-step chain: ..."
+    -- 2. Insert into database
+    INSERT INTO SchedulingTeam (schedulingTeamName, divisionId, ...)
+    VALUES (@schedulingTeamName, @divisionId, ...)
     
-    # Print header
-    print("\n" + "="*80)
-    print(f"[1/1] Case: POSITIVE_CHAIN_CREATE_UPDATE_VALIDATE")
-    print(f"Type: POSITIVE")
-    print(f"Description: 3-step chain: Create team, update allocations...")
-    print("="*80)
+    -- 3. Get the new ID
+    SET @createdTeamId = SCOPE_IDENTITY()
     
-    # Detect execution type
-    if 'chain_config' in test_case:  # ✓ This test case HAS chain_config
-        _execute_chain_test(test_case['chain_config'])
-        # Calls SPChainExecutor to run 3 sequential SPs
-    else:
-        _execute_single_test(sp_name, test_case['parameters'])
+    -- 4. Return success
+    RETURN 'SUCCESS'
+END
 ```
 
-#### **Step 6: Chain Execution Details**
+**Database sends back:**
+- `status`: 'SUCCESS'
+- `created_team_id`: 12345 (new team created)
 
-Inside `_execute_chain_test(chain_config)`:
+---
+
+### **Step 5: Test Validation - Extract Result**
+
+**Back in [tests/test_create_01.py#L24-L26](tests/test_create_01.py#L24-L26)**
+
 ```python
-# chain_config is array of 3 steps
-connection = get_connection()  # Get DB connection
-executor = SPChainExecutor(connection)
-result = executor.execute_chain(chain_config)
+result = run_stored_procedures_from_data(filter_test_name=test_case_id)
+# result = { 'results': { 'usp_CreateUpdateSchedulingTeam': [...] } }
 
-# Returns:
+# Line 24: Extract module results
+module_results = list(result.get('results', {}).values())[0]
+# Input: result dict
+# Output: [{ 'case_id': 'Create_New_Schd_Team_01', 'status': 'SUCCESS', ... }]
+
+# Line 25: Find this specific test result
+test_result = next((r for r in module_results if r.get('case_id') == test_case_id), None)
+# Input: List of results, looking for specific case_id
+# Output: Single result dict:
 # {
-#   'success': True/False,
-#   'failed_step': None,
-#   'error': None,
-#   'chain_data': {
-#     'created_team_id': 12345,    # Output from step 1
-#     'updated_count': 5           # Output from step 2
-#   },
-#   'partial_results': {...}
+#     'case_id': 'Create_New_Schd_Team_01',
+#     'status': 'SUCCESS',
+#     'message': 'Scheduling Team created',
+#     'execution_context': { 'created_team_id': 12345 }
 # }
 ```
 
-#### **Step 7: Print Results**
+---
+
+### **Step 6: Test Assertions**
+
+**[tests/test_create_01.py#L27-L34](tests/test_create_01.py#L27-L34)**
+
 ```python
-if result['success']:
-    print("\n[SUCCESS] Chain execution completed successfully!")
-    print("\nChain data (extracted/passed between steps):")
-    print(f"  created_team_id: 12345")
-    print(f"  updated_count: 5")
-else:
-    print("\n[FAILED] CHAIN EXECUTION FAILED")
-    print(f"Failed at: STEP {result['failed_step']}")
-    print(f"Error: {result['error']}")
-    # Print partial results up to failure point
+# Line 27: Verify result exists
+assert test_result, f"No result found for test case '{test_case_id}'"
+# Input: test_result dict (from Step 5)
+# Check: Is it not None/empty?
+# If empty → TEST FAILS with message
+
+# Line 29-30: Extract status
+status = test_result.get('status', '').upper()
+# Input: test_result dict
+# Output: 'SUCCESS'
+
+# Line 31: Extract created team ID
+created_team_id = test_result.get('execution_context', {}).get('created_team_id')
+# Input: test_result nested dict
+# Output: 12345 (integer)
+
+# Line 32: Assertion 1 - Check procedure succeeded
+assert status in ['SUCCESS', 'PASSED'], f"Expected success but got {status}: {message}"
+# Input: status = 'SUCCESS'
+# Check: Is it SUCCESS or PASSED?
+# If not → TEST FAILS
+
+# Line 33: Assertion 2 - Check team ID was returned
+assert created_team_id, f"Create should return team_id but got: {created_team_id}"
+# Input: created_team_id = 12345
+# Check: Is it not None/0/empty?
+# If empty → TEST FAILS
+```
+
+**Status so far**: ✅ Procedure succeeded, team created in database
+
+---
+
+### **Step 7: Database Validation**
+
+**[tests/test_create_01.py#L35-L36](tests/test_create_01.py#L35-L36)**
+
+```python
+# Line 35: Query database to verify team exists
+team_details = getSchdGrpDetails(created_team_id)
+
+# File: validation_layer/schGroup_validator.py
+def getSchdGrpDetails(team_id):
+    """
+    Input: team_id = 12345
+    
+    Process:
+    1. Execute SQL: SELECT * FROM SchedulingTeam WHERE schedulingTeamId = 12345
+    2. Fetch all columns
+    3. Return as dictionary
+    
+    Output:
+    {
+        'schedulingTeamId': 12345,
+        'schedulingTeamName': 'tst automation schd grwp11',
+        'divisionId': 6,
+        'isActive': 1,
+        'defaultSicknessHoursAllocation': 1,
+        ... (50+ more columns)
+    }
+    """
+
+# Line 36: Final assertion
+assert team_details.get('schedulingTeamId') == created_team_id, f"Team {created_team_id} not found in DB"
+
+# Input: team_details dict from database
+# Check: Does it have the same team_id?
+# If not found (None) → TEST FAILS
+# If found (12345 == 12345) → ✅ TEST PASSES
 ```
 
 ---
 
-## Data Structures & Return Types
+### **Step 8: Logging Results**
 
-### **load_test_inputs() Return Type: `dict`**
-
-```python
-{
-  "usp_CreateUpdateSchedulingTeam": [
-    {"case_id": "...", "case_type": "...", ...},
-    {...}
-  ],
-  "usp_GetUsers": [
-    {...}
-  ]
-}
-```
-
-### **test_stored_procedures() Return Type: `None`**
-
-- Prints all output to console
-- Raises `FileNotFoundError` if JSON file not found
-- Raises `ValueError` if test_inputs not provided (mandatory)
-
-### **run_stored_procedure() Return Type: `list` or `None`**
+**[tests/test_create_01.py#L38](tests/test_create_01.py#L38)**
 
 ```python
-# From core.db.procedures
-result = run_stored_procedure('usp_GetUsers', {'@userId': 123})
+logger.info(f"✓ Team {created_team_id} created successfully")
 
-# Returns:
-# [
-#   Row(id=1, name='User1', email='user1@example.com'),
-#   Row(id=2, name='User2', email='user2@example.com')
-# ]
-# OR: None if no results
-```
+# File written to:
+# output/tests/test_create_01.py/test_create_team[Create_New_Schd_Team_01]/execution_gw0.log
 
-### **SPChainExecutor.execute_chain() Return Type: `dict`**
-
-```python
-{
-  'success': bool,
-  'failed_step': int | None,
-  'error': str | None,
-  'chain_data': dict,           # Variables passed between steps
-  'partial_results': dict       # Results from completed steps
-}
+# Console output (if -v):
+# ✓ Team 12345 created successfully
 ```
 
 ---
 
-## Usage Guide
+### **Step 9: Cleanup (Test Teardown)**
 
-### **Basic Usage: Run Tests**
+**Automatic - via db_transaction fixture**
 
 ```python
-from tests.helpers.sp_test_utils import test_stored_procedures
-from tests.enums.test_enums import TestCaseType
+# After test function finishes (whether PASS or FAIL):
 
-# Run only POSITIVE tests for usp_CreateUpdateSchedulingTeam from test_inputs1.json
-test_stored_procedures('usp_CreateUpdateSchedulingTeam', TestCaseType.POSITIVE, "test_inputs1")
-
-# Run only NEGATIVE tests
-test_stored_procedures('usp_GetUsers', TestCaseType.NEGATIVE, "test_inputs1")
-
-# Run only EDGE case tests
-test_stored_procedures('usp_ValidateTeam', TestCaseType.EDGE, "test_inputs1")
+# conftest.py db_transaction fixture:
+@pytest.fixture
+def db_transaction(request):
+    connection.begin()  # Started in Step 2
+    yield  # ← test runs here (Steps 3-8)
+    # After test:
+    connection.rollback()  # ← Database reverts ALL changes
+    connection.close()
 ```
 
-### **Create New Test File**
+**What this does:**
+- ✅ Team 12345 was created in Step 6
+- ✅ Team 12345 was verified in database in Step 7
+- ✅ After test → `ROLLBACK` → Team 12345 is DELETED from database
+- ✅ Database is now in original state (like test never ran)
+- ✅ Next test starts with clean database
 
-1. Create JSON file in `tests/test_data/` directory (e.g., `my_tests.json`)
+**Why**: Test isolation! Tests don't interfere with each other.
 
-2. Define test structure:
-```json
-{
-  "usp_YourProcedure": [
-    {
-      "case_id": "POSITIVE_CASE_1",
-      "case_type": "POSITIVE",
-      "description": "What this test validates",
-      "parameters": {
-        "@param1": "value1",
-        "@param2": 123
-      }
-    },
-    {
-      "case_id": "NEGATIVE_INVALID_INPUT",
-      "case_type": "NEGATIVE",
-      "description": "Test with invalid input",
-      "parameters": {
-        "@param1": "invalid",
-        "@param2": -999
-      }
-    }
-  ]
-}
+---
+
+### **Step 10: Test Result Reported**
+
+```
+============================= test session starts =============================
+...
+tests/test_create_01.py::test_create_team[Create_New_Schd_Team_01] PASSED  [ 33%]
+
+- Generated html report: file:///C:/sp_validation/reports/sp_automation_report.html
+======================== 1 passed in 2.45s ===========================
 ```
 
-3. Use in tests:
-```python
-test_stored_procedures('usp_YourProcedure', TestCaseType.POSITIVE, "my_tests")
+**Output artifacts created:**
+1. ✅ HTML Report: `reports/sp_automation_report.html` (shows all test runs)
+2. ✅ Test Output Dir: `output/tests/test_create_01.py/test_create_team[Create_New_Schd_Team_01]/`
+   - `stdout.txt` - Captured console output
+   - `stderr.txt` - Any errors
+   - `execution_gw0.log` - Framework logs
+
+---
+
+## File Dependencies Summary
+
+```
+pytest command
+    ↓
+[tests/conftest.py] pytest_configure() hook
+    ├─ Calls: [test_engine_layer/utils.py] validate_test_configuration()
+    │   ├─ Reads: [keyword_driven_tests.csv] (test data)
+    │   └─ Returns: Pass or ConfigurationError
+    ├─ Calls: [test_engine_layer/utils.py] get_test_case_ids_by_operation('Create')
+    │   ├─ Reads: [keyword_driven_tests.csv]
+    │   └─ Returns: ['Create_New_Schd_Team_01', ...]
+    ├─ Parametrizes test with: test_case_id = 'Create_New_Schd_Team_01'
+    └─ Injects fixtures: db_transaction, logger, output_dir
+        ↓
+[tests/test_create_01.py] test_create_team()
+    ├─ Calls: [test_engine_layer/utils.py] get_module_for_test_case(test_case_id)
+    │   └─ Returns: 'usp_CreateUpdateSchedulingTeam'
+    ├─ Calls: [test_engine_layer/runner.py] run_stored_procedures_from_data()
+    │   ├─ Calls: [test_engine_layer/utils.py] load_test_data()
+    │   │   ├─ Reads: [keyword_driven_tests.csv]
+    │   │   └─ Returns: DataFrame with all test data
+    │   ├─ Calls: [database_layer/procedure_executor.py] execute_procedure()
+    │   │   ├─ Executes: usp_CreateUpdateSchedulingTeam (SQL)
+    │   │   ├─ Database: INSERT into SchedulingTeam table
+    │   │   └─ Returns: {status, created_team_id, ...}
+    │   └─ Returns: Nested result dict with all procedure outputs
+    ├─ Calls: [validation_layer/schGroup_validator.py] getSchdGrpDetails(team_id)
+    │   ├─ Queries: SELECT * FROM SchedulingTeam WHERE id = team_id
+    │   └─ Returns: Team details or None
+    └─ Asserts & logs results
+        ↓
+[tests/conftest.py] db_transaction fixture cleanup
+    └─ ROLLBACK: Deletes created team from database
+        ↓
+HTML Report generated: reports/sp_automation_report.html
 ```
 
-### **Add Chained Tests**
+---
 
-```json
-{
-  "usp_CreateUpdateSchedulingTeam": [
-    {
-      "case_id": "CHAIN_CREATE_THEN_UPDATE",
-      "case_type": "POSITIVE",
-      "description": "Create team, then update it",
-      "chain_config": [
-        {
-          "step": 1,
-          "sp_name": "usp_CreateTeam",
-          "parameters": {
-            "@teamName": "TestTeam",
-            "@divisionId": 1
-          },
-          "output_mapping": {
-            "@outTeamId": "team_id"
-          }
-        },
-        {
-          "step": 2,
-          "sp_name": "usp_UpdateTeam",
-          "parameters": {
-            "@teamId": "$(team_id)",
-            "@newName": "UpdatedTeam"
-          }
-        }
-      ]
-    }
-  ]
-}
-```
+## Key Concepts
 
-### **Generate Skeletal Parameters**
+| Concept | Purpose | Implementation |
+|---------|---------|-----------------|
+| **Parametrization** | Run same test with different inputs | `@pytest.mark.parametrize("test_case_id", CREATE_TEST_CASES)` |
+| **Fixtures** | Setup/cleanup per test | `db_transaction`, `logger`, `output_dir` |
+| **Transaction Isolation** | Each test uses clean DB | `connection.begin()` then `connection.rollback()` |
+| **Format Agnostic** | Support CSV/XLSX/JSON | `load_test_data()` auto-detects format |
+| **Configuration Validation** | Catch errors early | `pytest_configure()` hook runs first |
+| **Parallel Execution** | Run multiple tests simultaneously | pytest-xdist with auto CPU detection |
+| **Comprehensive Logging** | Track every step | Worker-safe file + console logging |
 
-For SPs with many parameters, auto-generate parameter template:
+---
+
+## To Run Tests
 
 ```bash
-python -m contrib.generate_params usp_CreateUpdateSchedulingTeam --named
+# Run one specific test
+pytest tests/test_create_01.py::test_create_team[Create_New_Schd_Team_01] -v
+
+# Run all Create tests
+pytest tests/test_create_01.py -v
+
+# Run all tests in parallel (uses all CPU cores)
+pytest tests/ -n auto -v
+
+# Run with detailed logging
+pytest tests/ -v -s
+
+---
+
+## Section 2: Data Loading Flow - How Test Data Gets Read
+
+### Function Call Chain: `get_test_case_ids_by_operation('Create')`
+
+Let's trace **exactly** how test data is loaded when pytest calls:
+```python
+CREATE_TEST_CASES = [tc for tc in get_test_case_ids_by_operation('Create') if 'Duplicate' not in tc]
 ```
 
-Output:
+---
+
+### **Step 1: Call Function in [test_engine_layer/utils.py](test_engine_layer/utils.py#L78)**
+
+```python
+def get_test_case_ids_by_operation(operation: str, data_file: str = None) -> List[str]:
+    """
+    Input:
+    ──────
+    operation = 'Create' (string)
+    data_file = None (uses default from config)
+    
+    Output:
+    ───────
+    ['Create_New_Schd_Team_01']  (list of test case IDs)
+    """
+```
+
+**What happens inside:**
+- Line 1: Function receives `operation='Create'`
+- Line 2: Initializes empty list `test_cases = []`
+- Line 3: Calls `load_test_data(data_file)` ← **THIS IS THE KEY CALL**
+
+---
+
+### **Step 2: Call `load_test_data()` - File Discovery**
+
+**File: [test_engine_layer/utils.py](test_engine_layer/utils.py#L63)**
+
+```python
+def load_test_data(data_file: str = None) -> Dict:
+    """Load test data from CSV/Excel/JSON file.
+    
+    Args:
+        data_file: Optional data file path. Defaults to configured file.
+        
+    Returns:
+        Dict of {module_name: [test_case_rows]}
+    """
+    from data_loader_factory import TestDataLoader
+    
+    if data_file is None:
+        data_file = DataConfig.DEFAULT_TEST_DATA_FILE
+        # DEFAULT_TEST_DATA_FILE = 'keyword_driven_tests.csv'
+    
+    return TestDataLoader.load(data_file)
+    # ↑ Calls the factory loader
+```
+
+**Process:**
+```
+Input: data_file = None
+  ↓
+Load from config: DEFAULT_TEST_DATA_FILE = 'keyword_driven_tests.csv'
+  ↓
+Call: TestDataLoader.load('keyword_driven_tests.csv')
+```
+
+---
+
+### **Step 3: TestDataLoader - Smart Format Detection**
+
+**File: [data_loader_factory/factory.py](data_loader_factory/factory.py)**
+
+```python
+class TestDataLoader:
+    """
+    Universal test data loader for various formats.
+    
+    Auto-detects format from file extension and uses the appropriate loader.
+    Supports JSON, CSV (with automatic schema detection), and Excel (XLSX/XLS) formats.
+    """
+    
+    # ┌─────────────────────────────────────────────────────┐
+    # │  _LOADERS Dictionary - Maps Extension to Loader    │
+    # └─────────────────────────────────────────────────────┘
+    
+    _LOADERS = {
+        '.json': JSONLoader,
+        '.csv': CSVLoader,
+        '.xlsx': ExcelLoader,
+        '.xls': ExcelLoader,
+    }
+    
+    @staticmethod
+    def load(file_path: str, format: str = None, loader_type: str = None) -> Dict[str, Any]:
+        """
+        Input:
+        ──────
+        file_path = 'keyword_driven_tests.csv'
+        format = None (auto-detect)
+        loader_type = None (deprecated, kept for backward compatibility)
+        
+        Output:
+        ───────
+        {
+            'usp_CreateUpdateSchedulingTeam': [
+                {
+                    'case_id': 'Create_New_Schd_Team_01',
+                    'operation': 'Create',
+                    'executed': True,
+                    'module': 'usp_CreateUpdateSchedulingTeam',
+                    ...
+                },
+                {
+                    'case_id': 'Create_Duplicate_Team_01',
+                    'operation': 'Create',
+                    'executed': True,
+                    ...
+                },
+                ...
+            ]
+        }
+        """
+```
+
+**What `@staticmethod` means:**
+```
+@staticmethod
+def load(file_path: str) -> Dict:
+    pass
+
+┌──────────────────────────────────────────────────┐
+│ @staticmethod MEANS:                             │
+│                                                   │
+│ 1. NOT a class method                            │
+│ 2. NOT an instance method                        │
+│ 3. CAN be called without creating an instance   │
+│ 4. NO access to 'self' or 'cls'                 │
+│ 5. PURE FUNCTION inside a class                 │
+│                                                   │
+│ Usage:                                           │
+│ ✅ TestDataLoader.load(file)     [Class name]   │
+│ ❌ obj.load(file)               [Need instance] │
+│ ❌ self.load(file)              [Inside class]  │
+└──────────────────────────────────────────────────┘
+```
+
+**Process inside TestDataLoader.load():**
+
+```python
+# Line 1: Detect file extension
+if format:
+    # Explicit format provided
+    ext = f".{format.lower()}"
+else:
+    # Auto-detect from file path
+    ext = os.path.splitext(file_path)[1].lower()
+    # For 'keyword_driven_tests.csv':
+    # ext = '.csv'
+
+# Line 2: Get the appropriate loader from _LOADERS
+loader_class = _LOADERS.get(ext)
+
+# For '.csv':
+# loader_class = CSVLoader
+
+# Line 3: Call the loader's load() method
+return loader_class.load(file_path)
+
+# Calls: CSVLoader.load('keyword_driven_tests.csv')
+```
+
+---
+
+### **Step 4: CSVLoader - File Reading & Schema Detection**
+
+**File: [data_loader_factory/loaders/csv_loader.py](data_loader_factory/loaders/csv_loader.py)**
+
+```python
+class CSVLoader(BaseLoader):
+    """Load test data from CSV files with automatic schema detection.
+    
+    Auto-detects schema and supports both:
+    - Keyword-driven format (Module/Operation/Test Case ID/etc.)
+    - Generic format (sp_name)
+    """
+    
+    @staticmethod
+    def load(file_path: str) -> Dict[str, Any]:
+        """
+        Input:
+        ──────
+        file_path = 'keyword_driven_tests.csv'
+        """
+        
+        # Step 4a: Locate the file
+        if not os.path.isabs(file_path):
+            # Build absolute path from project root
+            project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            #                  ↑ data_loader_factory
+            #                        ↑ sp_validation
+            
+            file_path = os.path.join(project_root, file_path)
+            # Result: C:\sp_validation\keyword_driven_tests.csv
+        
+        # Step 4b: Verify file exists
+        if not os.path.isfile(file_path):
+            raise FileNotFoundError(f"Test data file not found: {file_path}")
+        
+        # Step 4c: Read CSV file
+        logger.info(f"Using CSVLoader for: {file_path}")
+        logger.info(f"Loading CSV test data from: {file_path}")
+        
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                csv_reader = csv.DictReader(f)
+                # DictReader uses first row (headers) as keys
+                # Headers: Module, Operation, Test Case ID, Executed, test_description, test_parameters
+                
+                rows = list(csv_reader)
+                # rows = [
+                #     {'Module': 'usp_CreateUpdateSchedulingTeam',
+                #      'Operation': 'Create',
+                #      'Test Case ID': 'Create_New_Schd_Team_01',
+                #      'Executed': 'yes',
+                #      'test_description': 'Create_Team_With_Default_Permissions',
+                #      'test_parameters': '{"schedulingTeamName":"...", ...}'},
+                #     {'Module': 'usp_CreateUpdateSchedulingTeam',
+                #      'Operation': 'Create',
+                #      'Test Case ID': 'Create_Duplicate_Team_01',
+                #      'Executed': 'yes',
+                #      ...},
+                #     ...
+                # ]
+        
+        # Step 4d: Auto-detect schema
+        schema_type = _detect_schema(rows)
+        # schema_type = 'keyword-driven'
+        
+        # Step 4e: Transform to standard format
+        if schema_type == 'keyword-driven':
+            data = _transform_keyword_driven(rows)
+        else:
+            data = _transform_generic(rows)
+        
+        logger.info(f"Detected schema: {schema_type}")
+        logger.info(f"Successfully loaded test data from {file_path}")
+        
+        return data
+        # Result: 
+        # {
+        #     'usp_CreateUpdateSchedulingTeam': [
+        #         {
+        #             'case_id': 'Create_New_Schd_Team_01',
+        #             'operation': 'Create',
+        #             'executed': True,  [CONVERTED from 'yes']
+        #             'module': 'usp_CreateUpdateSchedulingTeam',
+        #             'description': 'Create_Team_With_Default_Permissions',
+        #             'parameters': {...}
+        #         },
+        #         ...
+        #     ]
+        # }
+```
+
+**Inside _transform_keyword_driven():**
+
+```python
+def _transform_keyword_driven(rows):
+    """
+    Transform keyword-driven CSV rows to standard format.
+    
+    Input row (from CSV):
+    ────────────────────
+    {
+        'Module': 'usp_CreateUpdateSchedulingTeam',
+        'Operation': 'Create',
+        'Test Case ID': 'Create_New_Schd_Team_01',
+        'Executed': 'yes',
+        'test_description': 'Create_Team_With_Default_Permissions',
+        'test_parameters': '{"schedulingTeamName":"...", ...}'
+    }
+    
+    Output row (standardized):
+    ──────────────────────────
+    {
+        'case_id': 'Create_New_Schd_Team_01',
+        'operation': 'Create',
+        'module': 'usp_CreateUpdateSchedulingTeam',
+        'executed': True,  [STRING 'yes' → BOOLEAN True]
+        'description': 'Create_Team_With_Default_Permissions',
+        'parameters': {'schedulingTeamName': '...', ...}  [JSON STRING → DICT]
+    }
+    """
+    
+    data = {}
+    
+    for row in rows:
+        module = row.get('Module', '').strip()
+        
+        # Create module entry if needed
+        if module not in data:
+            data[module] = []
+        
+        # Parse parameters JSON
+        params_str = row.get('test_parameters', '{}')
+        try:
+            parameters = json.loads(params_str)
+        except json.JSONDecodeError:
+            parameters = {}
+        
+        # Convert 'Executed' string to boolean
+        executed_str = row.get('Executed', 'no').strip().lower()
+        executed = executed_str == 'yes'
+        
+        # Build standardized row
+        transformed_row = {
+            'case_id': row.get('Test Case ID', '').strip(),
+            'operation': row.get('Operation', '').strip(),
+            'module': module,
+            'executed': executed,
+            'description': row.get('test_description', ''),
+            'parameters': parameters
+        }
+        
+        data[module].append(transformed_row)
+    
+    return data
+```
+
+---
+
+### **Step 5: Back to get_test_case_ids_by_operation() - Filter Results**
+
+**Back in [test_engine_layer/utils.py](test_engine_layer/utils.py#L78)**
+
+```python
+def get_test_case_ids_by_operation(operation: str, data_file: str = None) -> List[str]:
+    """
+    After Step 4, we have loaded data dictionary
+    """
+    
+    # Step 5a: Load data (Steps 2-4)
+    test_data = load_test_data(data_file)
+    # Result:
+    # {
+    #     'usp_CreateUpdateSchedulingTeam': [
+    #         {'case_id': 'Create_New_Schd_Team_01', 'operation': 'Create', 'executed': True, ...},
+    #         {'case_id': 'Create_Duplicate_Team_01', 'operation': 'Create', 'executed': True, ...},
+    #         {'case_id': 'Create_New_Schd_Team_02', 'operation': 'Create', 'executed': False, ...},
+    #         {'case_id': 'Update_Schd_Team_02', 'operation': 'Edit', 'executed': False, ...}
+    #     ]
+    # }
+    
+    # Step 5b: Initialize result list
+    test_cases = []
+    
+    # Step 5c: Iterate through all modules
+    for module_name, cases in test_data.items():
+        # First iteration: module_name = 'usp_CreateUpdateSchedulingTeam'
+        # cases = [all rows for that module]
+        
+        # Step 5d: Iterate through cases in this module
+        for row in cases:
+            # Iteration 1: row = {'case_id': 'Create_New_Schd_Team_01', 'operation': 'Create', 'executed': True, ...}
+            # Iteration 2: row = {'case_id': 'Create_Duplicate_Team_01', 'operation': 'Create', 'executed': True, ...}
+            # Iteration 3: row = {'case_id': 'Create_New_Schd_Team_02', 'operation': 'Create', 'executed': False, ...}
+            # Iteration 4: row = {'case_id': 'Update_Schd_Team_02', 'operation': 'Edit', 'executed': False, ...}
+            
+            # Step 5e: Extract fields from row
+            test_name = row.get('case_id', '').strip()
+            op = row.get('operation', '').strip()
+            executed_raw = row.get('executed', False)
+            
+            # Step 5f: Convert string to boolean (if needed)
+            if isinstance(executed_raw, str):
+                executed = executed_raw.lower() == 'true'
+            else:
+                executed = bool(executed_raw)
+            
+            # Step 5g: Check if matches criteria
+            if op.lower() == operation.lower() and executed:
+                # For operation='Create' and executed=True:
+
+---
+
+## Section 3: Framework Architecture - Complete Guide for New Users
+
+### Overview
+This section explains the **complete end-to-end flow** of the Scheduling Platform Validation Framework - from folder structure, components, dependencies, execution, to report generation.
+
+---
+
+### 📁 **Part 1: Folder Structure & Purpose**
+
+```
+c:\sp_validation\
+├── keyword_driven_tests.csv          # Test data source (Create/Update/Delete test cases)
+├── pytest.ini                        # pytest configuration (test discovery, logging)
+├── requirements.txt                  # Python dependencies (pytest, sqlalchemy, etc)
+├── README.md                         # This file
+│
+├── config/                           # Configuration layer
+│   ├── __init__.py
+│   └── config.py                     # DB connection strings, environments, constants
+│
+├── data_layer/                       # Test data templates
+│   ├── __init__.py
+│   └── test_data/
+│       └── usp_CreateUpdateSchedulingTeam/  # Folder per stored procedure
+│           ├── preseed_data/         # Pre-setup test data needed before running test
+│           └── template_data/        # Empty test team templates for param override
+│
+├── data_loader_factory/              # Data loading logic
+│   ├── __init__.py
+│   ├── testDataLoaderfactory.py      # Factory pattern - loads data by file type
+│   ├── fileLoader.py                 # Abstract base loader
+│   └── loaders/
+│       ├── base_loader.py            # Parent class for all loaders
+│       ├── csv_loader.py             # Load .csv files
+│       ├── excel_loader.py           # Load .xlsx files
+│       ├── json_loader.py            # Load .json files
+│       └── keyword_driven_loader.py  # Load keyword-driven test data
+│
+├── database_layer/                   # Database interaction layer
+│   ├── __init__.py
+│   ├── connection.py                 # Establish DB connections
+│   ├── procedure_executor.py         # Execute stored procedures (main SP calling)
+│   ├── chain_executor.py             # Execute multiple SPs in sequence
+│   ├── transaction_manager.py        # Begin/commit/rollback transactions
+│   └── normalizer.py                 # Normalize/clean SP output
+│
+├── validation_layer/                 # Result validation
+│   ├── __init__.py
+│   ├── generic_validators.py         # Common validation rules (not null, type check, etc)
+│   ├── preseed_validator.py          # Validate pre-setup data
+│   └── schGroup_validator.py         # Domain-specific validators
+│
+├── test_engine_layer/                # Test execution engine
+│   ├── __init__.py
+│   ├── builder.py                    # Build test cases from test data
+│   ├── parameter_manager.py          # Extract/parse test parameters
+│   ├── runner.py                     # Orchestrate test execution
+│   ├── template_transformer.py       # Override template with test params
+│   └── utils.py                      # Utility functions (file loading, filtering, etc)
+│
+├── tests/                            # Actual pytest test files
+│   ├── __init__.py
+│   ├── conftest.py                   # pytest fixtures & hooks (fixtures: db_transaction, logger, output_dir)
+│   ├── test_create_01.py             # Create operation tests
+│   └── test_edit_01.py               # Edit operation tests
+│
+└── output/                           # Test execution results
+    ├── reports/
+    │   └── sp_automation_report.html # Final HTML report
+    └── tests/
+        ├── test_create_01.py/
+        │   └── test_create_team[Create_New_Schd_Team_01]/  # Per-test folder
+        │       ├── execution_gw0.log                       # Execution logs
+        │       ├── stdout.txt                              # Captured stdout
+        │       └── stderr.txt                              # Captured stderr
+        └── test_edit_01.py/
+            └── ...
+```
+
+---
+
+### 🔧 **Part 2: Core Components & Their Roles**
+
+#### **Component 1: Test Data File (`keyword_driven_tests.csv`)**
+```
+Purpose: Define WHAT tests to run (keyword-driven approach)
+Format: CSV with columns:
+  - Module: Stored procedure name (e.g., usp_CreateUpdateSchedulingTeam)
+  - Operation: Create, Edit, Delete, etc.
+  - Test Case ID: Unique identifier (e.g., Create_New_Schd_Team_01)
+  - Executed: yes/no (enable/disable test)
+  - expected_result: What should succeed/fail
+  - test_description: Human-readable description
+  - test_parameters: JSON with all SP input parameters
+
+Example Row:
+  usp_CreateUpdateSchedulingTeam | Create | Create_New_Schd_Team_01 | yes | record inserted successfully | Create baseline team | {"schedulingTeamName":"team1",...}
+```
+
+**Key Logic: Test Dependency**
+```
+- Edit tests CAN ONLY RUN if their corresponding Create succeeded
+- During execution: If Create_New_Schd_Team_01 succeeds and generates a team ID:
+  → Edit_New_Schd_Team_01 automatically has that team ID injected
+  → Both execute in same database transaction
+- If Create fails → Edit is NOT executed (no valid ID)
+```
+
+---
+
+#### **Component 2: Data Layer (`data_loader_factory/`)**
+
+**What it does**: Reads test data from different file formats
+
+**How it works**:
+```
+1. testDataLoaderfactory.py:
+   - Detects file type (.csv, .xlsx, .json)
+   - Selects appropriate loader
+
+2. Specific loaders (csv_loader.py, excel_loader.py, etc.):
+   - Read raw file → Dictionary format
+   - Normalize field names (lowercase, strip spaces)
+   - Return list of test case dictionaries
+
+3. keyword_driven_loader.py:
+   - Special loader for "keyword-driven tests"
+   - Extracts test cases marked as Executed='yes'
+   - Groups by Module & Operation
+```
+
+**Example Output**:
 ```python
 {
-  "@schedulingTeamName": "",
-  "@schedulingTeamDescription": "",
-  "@divisionId": 0,
-  "@isActive": 0,
-  ...
+  'usp_CreateUpdateSchedulingTeam': [
+    {'Test Case ID': 'Create_New_Schd_Team_01', 'Operation': 'Create', 'Executed': True, 'test_parameters': {...}},
+    {'Test Case ID': 'Create_Duplicate_Team_01', 'Operation': 'Create', 'Executed': True, ...},
+    {'Test Case ID': 'Edit_New_Schd_Team_01', 'Operation': 'Edit', 'Executed': False, ...},
+  ]
 }
 ```
 
-Copy this into your JSON test file and fill in values.
-
 ---
 
-## Key Concepts Summary
+#### **Component 3: Database Layer (`database_layer/`)**
 
-| Concept | Purpose | Type |
-|---------|---------|------|
-| **TestCaseType Enum** | Categorize tests (POSITIVE/NEGATIVE/EDGE) | Classification |
-| **JSON Test File** | Define test data and expected behavior | Data |
-| **load_test_inputs()** | Parse JSON into Python dict | Loader |
-| **test_stored_procedures()** | Main orchestrator function | Controller |
-| **_execute_single_test()** | Run one SP once | Executor |
-| **_execute_chain_test()** | Run multiple SPs sequentially | Executor |
-| **SPChainExecutor** | Manages chained SP execution | Engine |
-| **chain_data** | Variables passed between chain steps | State |
-| **output_mapping** | Map SP outputs to chain variables | Transformer |
-
----
-
-## Why Each Piece Exists
-
-| Component | Why Created | Benefit |
-|-----------|-------------|---------|
-| Enum | Type safety, prevent typos | Can't use invalid case types by accident |
-| JSON files | Separate data from code | Add tests without recompiling code |
-| load_test_inputs() | Centralize loading logic | Flexible filenames, consistent error handling |
-| test_stored_procedures() | Main orchestration | One function call runs entire test workflow |
-| Single test function | Basic execution | Simplest case is straightforward |
-| Chain test function | Complex workflows | Real-world scenarios need multiple SPs |
-| SPChainExecutor | State management | Track data passed between steps |
-| output_mapping | Variable capture | Step 2 can use outputs from Step 1 |
-
----
-
-## Adding New Helpers
-
-Place reusable helpers in `tests/helpers/` and scripts/one-off utilities in `contrib/`.
-
-**Example:** If you create `tests/helpers/my_helper.py`:
+**Subcomponent 3a: Connection (`connection.py`)**
 ```python
-def my_helper_function():
-    """Useful utility"""
-    pass
+def connect(connection_string, use_autoload_schema=True):
+    """
+    Input: Database connection string
+    Output: SQLAlchemy Engine & MetaData objects
+    Purpose: Establish connection to SQL Server
+    """
 ```
 
-Import it in tests:
+**Subcomponent 3b: Transaction Manager (`transaction_manager.py`)**
 ```python
-from tests.helpers.my_helper import my_helper_function
+with db_transaction:  # BEGIN TRANSACTION
+    # Execute SP
+    result = procedure_executor.execute(sp_name, sp_params)
+    # If test passes:
+    db_transaction.commit()  # COMMIT
+    # If test fails:
+    db_transaction.rollback()  # ROLLBACK - database unchanged
 ```
+
+**Why**: Test isolation! Each test starts with fresh database state.
+
+**Subcomponent 3c: Procedure Executor (`procedure_executor.py`)**
+```python
+def execute_procedure(sp_name, input_params, db_connection):
+    """
+    Input:
+      - sp_name: 'usp_CreateUpdateSchedulingTeam' (stored proc name)
+      - input_params: {'schedulingTeamName': 'team1', 'divisionId': 6, ...}
+      - db_connection: SQLAlchemy connection
+    
+    Process:
+      1. Create callable: connection.run_sync(lambda c: c.execute(...))
+      2. Pass parameters to SP
+      3. SP executes in SQL Server
+      4. Capture return code & output parameters
+    
+    Output:
+      {
+        'return_code': 1 (success) or 0 (failure),
+        'new_team_id': 123 (if Create succeeded),
+        'message': 'record inserted successfully',
+        'affected_rows': 1
+      }
+    """
+```
+
+**Subcomponent 3d: Chain Executor (`chain_executor.py`)**
+```python
+# Execute Create then Edit in same transaction:
+result1 = execute_procedure('usp_CreateUpdateSchedulingTeam', create_params)
+# SP generates new_team_id = 123
+
+result2 = execute_procedure('usp_CreateUpdateSchedulingTeam', edit_params)
+# Edit_params uses new_team_id from result1
+# Both succeed or both rollback
+```
+
+---
+
+#### **Component 4: Validation Layer (`validation_layer/`)**
+
+```python
+def validate_result(result, expected_result, validators):
+    """
+    Input:
+      - result: SP output (what actually happened)
+      - expected_result: 'record inserted successfully' (what should happen)
+      - validators: [check_return_code, check_message, check_row_count]
+    
+    Process:
+      1. Run each validator
+      2. Check: return_code == 1? message matches? rows inserted? etc.
+      3. Collect all failures
+    
+    Output: Pass or Fail with detailed error messages
+    """
+```
+
+**Example Validators**:
+- `generic_validators.py`: Is return_code 0? Is message not null?
+- `schGroup_validator.py`: Is divisionId valid? Does team already exist?
+
+---
+
+#### **Component 5: Test Engine (`test_engine_layer/`)**
+
+**Subcomponent 5a: Builder (`builder.py`)**
+```python
+def build_test_cases(test_data):
+    """
+    Convert raw test data to runnable test cases
+    Input: {'Create_New_Schd_Team_01': {'test_parameters': '{"schedulingTeamName":"team1",...}'}}
+    Output: [TestCase(id='...', operation='...', params={...}), ...]
+    """
+```
+
+**Subcomponent 5b: Parameter Manager (`parameter_manager.py`)**
+```python
+def extract_test_parameters(json_string):
+    """
+    Input: '{"schedulingTeamName":"team1","divisionId":6,...}'
+    Output: {'schedulingTeamName': 'team1', 'divisionId': 6, ...} (Python dict)
+    Purpose: Parse JSON parameters from CSV
+    """
+```
+
+**Subcomponent 5c: Template Transformer (`template_transformer.py`)**
+```python
+def merge_template_with_overrides(template, test_params):
+    """
+    Purpose: Allow parameterized tests (override template values)
+    Input:
+      template: {'schedulingTeamName': 'default_team', 'divisionId': 1, ...}
+      test_params: {'schedulingTeamName': 'custom_team'} (only overrides)
+    Output: {'schedulingTeamName': 'custom_team', 'divisionId': 1, ...} (merged)
+    """
+```
+
+**Subcomponent 5d: Utils (`utils.py`)**
+```python
+def get_test_case_ids_by_operation(operation):
+    """Filter test cases by operation (Create/Edit/Delete) and Executed=yes"""
+
+def load_test_data():
+    """Load from CSV/XLSX/JSON and normalize"""
+
+def get_test_case(case_id):
+    """Fetch specific test case by ID"""
+```
+
+---
+
+### 🧪 **Part 3: Complete Test Execution Flow (E2E)**
+
+#### **Step 1: User runs pytest**
+```bash
+cd c:\sp_validation
+pytest tests/test_create_01.py -v --count=5
+```
+
+#### **Step 2: Test Discovery**
+```
+pytest reads:
+  - Scans tests/ folder
+  - Finds test_create_01.py
+  - Calls get_test_case_ids_by_operation('Create')
+  - Gets: ['Create_New_Schd_Team_01', 'Create_Duplicate_Team_01', 'Create_LongText_06']
+  - Creates parametrized test 3 times (one for each)
+```
+
+#### **Step 3: pytest_configure (conftest.py)**
+```
+- Validates config:
+  - At least 1 Create test enabled? ✓
+  - Create & Duplicate params match? ✓
+  - Database connection works? ✓
+- If fails → pytest exits with error
+- If passes → Continue
+```
+
+#### **Step 4: Database Connection**
+```
+connection.py:
+  Connection string: Server=SQLSERVER;Database=TestDB;Trusted_Connection=True
+  → SQLAlchemy Engine created
+  → Metadata loaded (table schemas, SP definitions)
+```
+
+#### **Step 5: Test Execution (per test case)**
+```
+For test_case_id = 'Create_New_Schd_Team_01':
+
+  5.1. Load test data
+       - CSV row: Module, Operation, Test Case ID, Executed, expected_result, test_parameters
+  
+  5.2. Extract parameters
+       - JSON: {"schedulingTeamName":"team1","divisionId":6,...}
+       → Python dict
+  
+  5.3. Start transaction
+       - transaction_manager.begin()  # Database snapshot
+  
+  5.4. Execute stored procedure
+       - SP: usp_CreateUpdateSchedulingTeam
+       - Params: {schedulingTeamName: 'team1', divisionId: 6, task: 'create', ...}
+       - Output: {return_code: 1, new_team_id: 456, message: 'record inserted successfully'}
+  
+  5.5. Validate result
+       - Expected: 'record inserted successfully'
+       - Actual: Output message
+       - Validators run: return_code==1? message matches? ✓
+  
+  5.6. Check database side effects
+       - Query: SELECT * FROM SchedulingTeams WHERE TeamID = 456
+       - Assert: Row exists + data matches params
+  
+  5.7. Log results
+       - execution_gw0.log: "PASS: Create_New_Schd_Team_01"
+       - output_dir/stdout.txt: Captured print statements
+  
+  5.8. Cleanup
+       - transaction_manager.rollback()  # Restore database
+       - Close resources
+```
+
+#### **Step 6: Edit Tests (if Create succeeded)**
+```
+If Create_New_Schd_Team_01 PASSED:
+  - new_team_id = 456 (extracted)
+  - Edit_New_Schd_Team_01 parameters are injected with this ID
+  - Edit runs in SAME transaction with Create
+  - If Edit fails → entire transaction rolls back
+  
+If Create_New_Schd_Team_01 FAILED:
+  - Edit_New_Schd_Team_01 is SKIPPED (no valid team ID)
+```
+
+#### **Step 7: Report Generation**
+```
+After all tests complete:
+
+  7.1. Collect results
+       - Test IDs, statuses (pass/fail), execution times
+       - Error messages, assertion failures
+  
+  7.2. Generate HTML report
+       - pytest-html plugin creates sp_automation_report.html
+       - Shows: Summary (3 passed, 1 failed), pie charts, test details
+  
+  7.3. Output structure
+       output/
+       ├── reports/
+       │   └── sp_automation_report.html      # Main report (open in browser)
+       └── tests/
+           └── test_create_01.py/
+               ├── test_create_team[Create_New_Schd_Team_01]/
+               │   ├── execution_gw0.log      # Detailed logs
+               │   ├── stdout.txt
+               │   └── stderr.txt
+               └── ...
+```
+
+---
+
+### 🚀 **Part 4: How to Execute Tests**
+
+#### **Option 1: Run all tests**
+```bash
+pytest tests/ -v
+```
+Output: Runs all test files (test_create_01.py, test_edit_01.py, etc.)
+
+#### **Option 2: Run specific test file**
+```bash
+pytest tests/test_create_01.py -v
+```
+Output: Only CREATE operation tests
+
+#### **Option 3: Run specific test case**
+```bash
+pytest tests/test_create_01.py::test_create_team[Create_New_Schd_Team_01] -v
+```
+Output: Only this one test case
+
+#### **Option 4: Run with parallel workers**
+```bash
+pytest tests/ -v -n 4  # Use 4 CPU cores
+```
+Output: Tests run in parallel (thread-safe, each has own transaction)
+
+#### **Option 5: Check test report**
+```bash
+start output/reports/sp_automation_report.html  # Open HTML report
+```
+
+---
+
+### 🔗 **Part 5: Test Dependency Logic**
+
+#### **The Simple Rule**
+```
+Edit can only happen if Create succeeded AND generated an ID
+```
+
+#### **How It Works**
+
+**Scenario 1: Create succeeds**
+```
+Test flow:
+  1. Create_New_Schd_Team_01 runs
+     - SP: usp_CreateUpdateSchedulingTeam(task='create', ...)
+     - Result: return_code=1, new_team_id=456 ✓
+  
+  2. Because Create succeeded:
+     - Extract new_team_id=456
+     - Inject into Edit_New_Schd_Team_01 parameters
+     - Edit runs with this team ID
+     - Both in SAME transaction
+```
+
+**Scenario 2: Create fails**
+```
+Test flow:
+  1. Create_Invalid_Values_02 runs
+     - SP: usp_CreateUpdateSchedulingTeam(divisionId='ABC', ...) ❌ (invalid type)
+     - Result: return_code=0 (error), no new_team_id
+  
+  2. Because Create failed:
+     - Edit tests referencing this Create are SKIPPED
+     - (No valid team ID to update)
+  
+  3. Validation passes:
+     - expected_result='Error converting data type' matches actual error ✓
+```
+
+**Scenario 3: Duplicate prevention**
+```
+Test flow:
+  1. Create_New_Schd_Team_01 runs (first time)
+     - schedulingTeamName='team_xyz'
+     - Result: ✓ Created (new_team_id=456)
+  
+  2. Create_Duplicate_Team_01 runs (same team name)
+     - schedulingTeamName='team_xyz' (SAME as above)
+     - SP rejects duplicate
+     - Result: return_code=0, error='already exists'
+     - expected_result='already exists' matches ✓
+```
+
+#### **No Cross-Test Dependencies**
+```
+❌ BAD (avoid):
+  - Create_Test_1 depends on Create_Test_2 succeeding
+  - Can't run tests independently
+  - Brittle, hard to debug
+
+✓ GOOD (current design):
+  - Each Create test is independent
+  - Edit depends only on ITS OWN Create (in same transaction)
+  - All tests runnable in any order
+  - Parallel execution safe
+```
+
+---
+
+### 📊 **Part 6: Report Generation Details**
+
+#### **What the Report Shows**
+
+```html
+<!-- output/reports/sp_automation_report.html -->
+┌─────────────────────────────────────────┐
+│ Test Summary                             │
+│ ─────────────────────────────────────── │
+│ Total: 15 tests                         │
+│ Passed: 11 (73%)                        │
+│ Failed: 3 (20%)                         │
+│ Skipped: 1 (7%)                         │
+└─────────────────────────────────────────┘
+
+Breakdown:
+  ✓ Create_New_Schd_Team_01: PASSED (1.23s)
+  ✓ Edit_New_Schd_Team_01: PASSED (0.87s)
+  ✗ Create_Invalid_Values_02: PASSED (expected failure) (0.92s)
+    • Expected 'Error converting data type'
+    • Got 'Error converting data type' ✓
+  ✓ Create_LongText_06: PASSED (1.05s)
+  ...
+```
+
+#### **How Report is Generated**
+
+```python
+# After all tests complete:
+1. pytest hooks into result callback
+2. Collects: test_ids, statuses, durations, error messages
+3. Calls: pytest-html plugin
+4. Generates: sp_automation_report.html
+5. File location: output/reports/sp_automation_report.html
+```
+
+#### **View Report**
+```bash
+# Windows
+start output\reports\sp_automation_report.html
+
+# Linux/Mac
+open output/reports/sp_automation_report.html
+```
+
+---
+
+### 🔍 **Part 7: Key Configuration Files**
+
+#### **`pytest.ini`**
+```ini
+[pytest]
+testpaths = tests/
+python_files = test_*.py
+python_classes = Test*
+python_functions = test_*
+addopts = --html=output/reports/sp_automation_report.html --self-contained-html
+log_cli = true
+log_cli_level = INFO
+```
+Purpose: Tell pytest where tests are, how to discover them, what plugins to use
+
+#### **`config/config.py`**
+```python
+DATABASE_URLS = {
+    'dev': 'mssql+pyodbc://SERVER/TestDB?trusted_connection=yes',
+    'staging': '...',
+    'prod': '...'
+}
+
+TEST_DATA_FILE_PATH = 'keyword_driven_tests.csv'
+TEST_DATA_BACKUP_PATH = 'data_layer/test_data/'
+```
+Purpose: Centralize configuration (change DB → edit here once)
+
+#### **`requirements.txt`**
+```
+pytest==7.4.0
+sqlalchemy==2.0.21
+pandas==2.0.3
+openpyxl==3.1.2
+pytest-html==3.2.0
+pytest-xdist==3.3.1  # For parallel execution
+```
+Purpose: Specify exact library versions (reproducible environments)
+
+---
+
+### 🛠️ **Part 8: Debugging & Troubleshooting**
+
+#### **Scenario 1: Test fails with "Connection refused"**
+```
+Problem: Database connection failed
+Solution:
+  1. Check config/config.py - correct server name?
+  2. Check network connectivity: ping SERVER
+  3. Check SQL Server is running
+  4. Check credentials (Trusted_Connection=yes in Windows Auth)
+```
+
+#### **Scenario 2: Test passes but data not in database**
+```
+Problem: Test reports success but tables empty
+Reason: Transaction was rolled back (isolation feature!)
+Explanation:
+  - Each test: BeginTransaction → Execute → Rollback
+  - Database intentionally reset after each test
+Solution:
+  - This is by design! Tests don't pollute database
+  - To verify data: Add assertions BEFORE rollback in test
+```
+
+#### **Scenario 3: Edit test skipped**
+```
+Problem: Edit_New_Schd_Team_01 doesn't run
+Possible cause: Create_New_Schd_Team_01 failed
+Solution:
+  1. Run Create test alone: pytest tests/test_create_01.py::test_create_team[Create_New_Schd_Team_01]
+  2. Check logs: output/tests/test_create_01.py/.../execution_gw0.log
+  3. Fix the Create test first
+  4. Edit will automatically run once Create succeeds
+```
+
+#### **Scenario 4: Need to enable/disable tests**
+```
+Solution: Edit keyword_driven_tests.csv
+  - Find test row
+  - Change Executed column: 'yes' → 'no' (disable) or 'no' → 'yes' (enable)
+  - Save file
+  - Re-run tests: pytest tests/ -v
+```
+
+---
+
+### ✅ **Part 9: Best Practices**
+
+1. **Keep test data independent**: Each Create test should work standalone
+2. **Use meaningful test case IDs**: Create_LongText_06 clearly describes what it tests
+3. **Write clear expected_result**: Help future developers understand intent
+4. **Check logs after failures**: output/tests/.../execution_gw0.log has details
+5. **Run tests frequently**: Before committing code changes
+6. **Review HTML report**: Shows overall health of stored procedures
+7. **Parallel execution**: Use `pytest -n auto` for speed (auto-detects CPU cores)
+8. **Test database state**: Ensure pre-conditions are met before running tests
+
+---
+
+This section provides everything a new user needs to understand the framework!
+                # ✅ Row 1: 'Create' == 'Create' ✓ and True ✓ → ADD 'Create_New_Schd_Team_01'
+                # ✅ Row 2: 'Create' == 'Create' ✓ and True ✓ → ADD 'Create_Duplicate_Team_01'
+                # ❌ Row 3: 'Create' == 'Create' ✓ but False ✗ → SKIP
+                # ❌ Row 4: 'Edit' != 'Create' ✗ → SKIP
+                
+                test_cases.append(test_name)
+    
+    # Step 5h: Return filtered list
+    return test_cases
+    # Result: ['Create_New_Schd_Team_01', 'Create_Duplicate_Team_01']
+```
+
+---
+
+### **Step 6: Back in [tests/test_create_01.py](tests/test_create_01.py#L12)**
+
+```python
+# Line 12: Filter out Duplicate tests
+CREATE_TEST_CASES = [tc for tc in get_test_case_ids_by_operation('Create') if 'Duplicate' not in tc]
+
+# Step 1: Call get_test_case_ids_by_operation('Create')
+#         Output: ['Create_New_Schd_Team_01', 'Create_Duplicate_Team_01']
+
+# Step 2: Filter with list comprehension [tc ... if 'Duplicate' not in tc]
+#         'Create_New_Schd_Team_01': 'Duplicate' not in string? ✅ YES → KEEP
+#         'Create_Duplicate_Team_01': 'Duplicate' not in string? ❌ NO → SKIP
+
+# Final result: ['Create_New_Schd_Team_01']
+
+# Step 3: pytest uses this list for parametrization
+@pytest.mark.parametrize("test_case_id", CREATE_TEST_CASES, ids=CREATE_TEST_CASES)
+# Runs test_create_team() once with test_case_id='Create_New_Schd_Team_01'
+```
+
+---
+
+## Data Loading Architecture Diagram
+
+```
+pytest discovers test_create_01.py
+    ↓
+Line 12: CREATE_TEST_CASES = get_test_case_ids_by_operation('Create')
+    ↓
+[test_engine_layer/utils.py] get_test_case_ids_by_operation('Create')
+    │
+    ├─→ Call: load_test_data(None)
+    │       ↓
+    │   [test_engine_layer/utils.py] load_test_data(None)
+    │       └─→ DataConfig.DEFAULT_TEST_DATA_FILE = 'keyword_driven_tests.csv'
+    │           └─→ Call: TestDataLoader.load('keyword_driven_tests.csv')
+    │
+    ├─→ [data_loader_factory/factory.py] TestDataLoader.load()
+    │   │   @staticmethod ← Pure function, no instance needed
+    │   │   _LOADERS = {'.csv': CSVLoader, ...} ← Maps extension to loader
+    │   │
+    │   └─→ Auto-detect: ext = '.csv'
+    │       └─→ loader_class = _LOADERS.get('.csv') = CSVLoader
+    │           └─→ Call: CSVLoader.load('keyword_driven_tests.csv')
+    │
+    ├─→ [data_loader_factory/loaders/csv_loader.py] CSVLoader.load()
+    │   │   @staticmethod ← Pure function
+    │   │
+    │   ├─ Build absolute path: C:\sp_validation\keyword_driven_tests.csv
+    │   ├─ Open file with UTF-8 encoding
+    │   ├─ Parse CSV with DictReader (uses headers as keys)
+    │   ├─ Auto-detect schema: 'keyword-driven'
+    │   ├─ Transform rows to standard format
+    │   │   (Convert 'yes'/'no' strings to True/False booleans)
+    │   │   (Parse JSON parameters strings to Python dicts)
+    │   │
+    │   └─→ Return: {
+    │       'usp_CreateUpdateSchedulingTeam': [
+    │           {'case_id': 'Create_New_Schd_Team_01', 'operation': 'Create', 'executed': True, ...},
+    │           {'case_id': 'Create_Duplicate_Team_01', 'operation': 'Create', 'executed': True, ...},
+    │           {'case_id': 'Create_New_Schd_Team_02', 'operation': 'Create', 'executed': False, ...},
+    │           {'case_id': 'Update_Schd_Team_02', 'operation': 'Edit', 'executed': False, ...}
+    │       ]
+    │   }
+    │
+    └─→ Back in get_test_case_ids_by_operation()
+        │
+        └─ Filter: operation='Create' AND executed=True
+            └─→ Result: ['Create_New_Schd_Team_01', 'Create_Duplicate_Team_01']
+                │
+                └─→ Back in test_create_01.py
+                    └─ Filter: Remove if 'Duplicate' in test_case_id
+                        └─→ Final: ['Create_New_Schd_Team_01']
+                            └─→ pytest parametrizes test with this list
+```
+
+---
+
+## Key Concepts: Data Loading Layer
+
+| Concept | What It Is | Why It Matters | Example |
+|---------|-----------|----------------|---------|
+| **TestDataLoader** | Factory class with universal `load()` method | Single entry point for all formats (CSV/JSON/Excel) | `TestDataLoader.load('data.csv')` auto-detects format |
+| **_LOADERS Dict** | Maps file extensions to loader classes | Enables format auto-detection without if/else chains | `_LOADERS['.csv']` = `CSVLoader` |
+| **@staticmethod** | Method that doesn't need class instance | Enables pure functions inside classes | `TestDataLoader.load()` called directly on class |
+| **BaseLoader** | Abstract base class (interface) | All loaders implement same contract | `JSONLoader`, `CSVLoader`, `ExcelLoader` all inherit |
+| **Schema Auto-Detection** | Detects keyword-driven vs generic format | Eliminates need for config file to specify format | CSV reads headers automatically |
+| **Type Conversion** | Transforms strings to proper types | Ensures consistent data types across all formats | `'yes'` string → `True` boolean |
+| **Standardization** | Output always same dict structure | Downstream code doesn't care which format was loaded | All loaders return `{module: [rows]}` |
+
+---
+
+## File Reading Summary
+
+```
+┌─────────────────────────────────────────────────────────┐
+│ DATA LOADING FLOW: From Disk to Python Dictionary      │
+└─────────────────────────────────────────────────────────┘
+
+CSV File (keyword_driven_tests.csv)
+┌────────────────────────────────────────────────────────────┐
+│ Module,Operation,Test Case ID,Executed,test_...,test_..   │
+│ usp_Create...,Create,Create_New_Schd_Team_01,yes,...      │
+│ usp_Create...,Create,Create_Duplicate_Team_01,yes,...     │
+│ usp_Create...,Create,Create_New_Schd_Team_02,no,...       │
+│ usp_Create...,Edit,Update_Schd_Team_02,no,...             │
+└────────────────────────────────────────────────────────────┘
+              ↓
+         Opens as UTF-8 text file
+         Reads with csv.DictReader
+              ↓
+     Detects column headers as keys
+     Reads each row into dictionary
+              ↓
+     Auto-detects schema: 'keyword-driven'
+     Transforms to standard format
+              ↓
+     Type Conversions:
+     ✓ 'yes' → True
+     ✓ 'no' → False
+     ✓ JSON strings → Python dicts
+     ✓ Headers → lowercase keys
+              ↓
+     Python Dictionary Structure
+┌────────────────────────────────────────────────────────────┐
+│ {                                                          │
+│   'usp_CreateUpdateSchedulingTeam': [                      │
+│     {                                                      │
+│       'case_id': 'Create_New_Schd_Team_01',              │
+│       'operation': 'Create',                              │
+│       'module': 'usp_CreateUpdateSchedulingTeam',         │
+│       'executed': True,  ← Converted from 'yes'          │
+│       'description': '...',                               │
+│       'parameters': {...}  ← Parsed from JSON string      │
+│     },                                                     │
+│     ...                                                    │
+│   ]                                                        │
+│ }                                                          │
+└────────────────────────────────────────────────────────────┘
+              ↓
+     Filters by operation and executed flag
+     Returns list of matching test case IDs
+```
+
+# View HTML report after running
+# Open: reports/sp_automation_report.html
+```
+
+---
+
