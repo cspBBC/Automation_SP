@@ -984,6 +984,650 @@ def get_test_case_ids_by_operation(operation: str, data_file: str = None) -> Lis
             # Step 5g: Check if matches criteria
             if op.lower() == operation.lower() and executed:
                 # For operation='Create' and executed=True:
+
+---
+
+## Section 3: Framework Architecture - Complete Guide for New Users
+
+### Overview
+This section explains the **complete end-to-end flow** of the Scheduling Platform Validation Framework - from folder structure, components, dependencies, execution, to report generation.
+
+---
+
+### 📁 **Part 1: Folder Structure & Purpose**
+
+```
+c:\sp_validation\
+├── keyword_driven_tests.csv          # Test data source (Create/Update/Delete test cases)
+├── pytest.ini                        # pytest configuration (test discovery, logging)
+├── requirements.txt                  # Python dependencies (pytest, sqlalchemy, etc)
+├── README.md                         # This file
+│
+├── config/                           # Configuration layer
+│   ├── __init__.py
+│   └── config.py                     # DB connection strings, environments, constants
+│
+├── data_layer/                       # Test data templates
+│   ├── __init__.py
+│   └── test_data/
+│       └── usp_CreateUpdateSchedulingTeam/  # Folder per stored procedure
+│           ├── preseed_data/         # Pre-setup test data needed before running test
+│           └── template_data/        # Empty test team templates for param override
+│
+├── data_loader_factory/              # Data loading logic
+│   ├── __init__.py
+│   ├── testDataLoaderfactory.py      # Factory pattern - loads data by file type
+│   ├── fileLoader.py                 # Abstract base loader
+│   └── loaders/
+│       ├── base_loader.py            # Parent class for all loaders
+│       ├── csv_loader.py             # Load .csv files
+│       ├── excel_loader.py           # Load .xlsx files
+│       ├── json_loader.py            # Load .json files
+│       └── keyword_driven_loader.py  # Load keyword-driven test data
+│
+├── database_layer/                   # Database interaction layer
+│   ├── __init__.py
+│   ├── connection.py                 # Establish DB connections
+│   ├── procedure_executor.py         # Execute stored procedures (main SP calling)
+│   ├── chain_executor.py             # Execute multiple SPs in sequence
+│   ├── transaction_manager.py        # Begin/commit/rollback transactions
+│   └── normalizer.py                 # Normalize/clean SP output
+│
+├── validation_layer/                 # Result validation
+│   ├── __init__.py
+│   ├── generic_validators.py         # Common validation rules (not null, type check, etc)
+│   ├── preseed_validator.py          # Validate pre-setup data
+│   └── schGroup_validator.py         # Domain-specific validators
+│
+├── test_engine_layer/                # Test execution engine
+│   ├── __init__.py
+│   ├── builder.py                    # Build test cases from test data
+│   ├── parameter_manager.py          # Extract/parse test parameters
+│   ├── runner.py                     # Orchestrate test execution
+│   ├── template_transformer.py       # Override template with test params
+│   └── utils.py                      # Utility functions (file loading, filtering, etc)
+│
+├── tests/                            # Actual pytest test files
+│   ├── __init__.py
+│   ├── conftest.py                   # pytest fixtures & hooks (fixtures: db_transaction, logger, output_dir)
+│   ├── test_create_01.py             # Create operation tests
+│   └── test_edit_01.py               # Edit operation tests
+│
+└── output/                           # Test execution results
+    ├── reports/
+    │   └── sp_automation_report.html # Final HTML report
+    └── tests/
+        ├── test_create_01.py/
+        │   └── test_create_team[Create_New_Schd_Team_01]/  # Per-test folder
+        │       ├── execution_gw0.log                       # Execution logs
+        │       ├── stdout.txt                              # Captured stdout
+        │       └── stderr.txt                              # Captured stderr
+        └── test_edit_01.py/
+            └── ...
+```
+
+---
+
+### 🔧 **Part 2: Core Components & Their Roles**
+
+#### **Component 1: Test Data File (`keyword_driven_tests.csv`)**
+```
+Purpose: Define WHAT tests to run (keyword-driven approach)
+Format: CSV with columns:
+  - Module: Stored procedure name (e.g., usp_CreateUpdateSchedulingTeam)
+  - Operation: Create, Edit, Delete, etc.
+  - Test Case ID: Unique identifier (e.g., Create_New_Schd_Team_01)
+  - Executed: yes/no (enable/disable test)
+  - expected_result: What should succeed/fail
+  - test_description: Human-readable description
+  - test_parameters: JSON with all SP input parameters
+
+Example Row:
+  usp_CreateUpdateSchedulingTeam | Create | Create_New_Schd_Team_01 | yes | record inserted successfully | Create baseline team | {"schedulingTeamName":"team1",...}
+```
+
+**Key Logic: Test Dependency**
+```
+- Edit tests CAN ONLY RUN if their corresponding Create succeeded
+- During execution: If Create_New_Schd_Team_01 succeeds and generates a team ID:
+  → Edit_New_Schd_Team_01 automatically has that team ID injected
+  → Both execute in same database transaction
+- If Create fails → Edit is NOT executed (no valid ID)
+```
+
+---
+
+#### **Component 2: Data Layer (`data_loader_factory/`)**
+
+**What it does**: Reads test data from different file formats
+
+**How it works**:
+```
+1. testDataLoaderfactory.py:
+   - Detects file type (.csv, .xlsx, .json)
+   - Selects appropriate loader
+
+2. Specific loaders (csv_loader.py, excel_loader.py, etc.):
+   - Read raw file → Dictionary format
+   - Normalize field names (lowercase, strip spaces)
+   - Return list of test case dictionaries
+
+3. keyword_driven_loader.py:
+   - Special loader for "keyword-driven tests"
+   - Extracts test cases marked as Executed='yes'
+   - Groups by Module & Operation
+```
+
+**Example Output**:
+```python
+{
+  'usp_CreateUpdateSchedulingTeam': [
+    {'Test Case ID': 'Create_New_Schd_Team_01', 'Operation': 'Create', 'Executed': True, 'test_parameters': {...}},
+    {'Test Case ID': 'Create_Duplicate_Team_01', 'Operation': 'Create', 'Executed': True, ...},
+    {'Test Case ID': 'Edit_New_Schd_Team_01', 'Operation': 'Edit', 'Executed': False, ...},
+  ]
+}
+```
+
+---
+
+#### **Component 3: Database Layer (`database_layer/`)**
+
+**Subcomponent 3a: Connection (`connection.py`)**
+```python
+def connect(connection_string, use_autoload_schema=True):
+    """
+    Input: Database connection string
+    Output: SQLAlchemy Engine & MetaData objects
+    Purpose: Establish connection to SQL Server
+    """
+```
+
+**Subcomponent 3b: Transaction Manager (`transaction_manager.py`)**
+```python
+with db_transaction:  # BEGIN TRANSACTION
+    # Execute SP
+    result = procedure_executor.execute(sp_name, sp_params)
+    # If test passes:
+    db_transaction.commit()  # COMMIT
+    # If test fails:
+    db_transaction.rollback()  # ROLLBACK - database unchanged
+```
+
+**Why**: Test isolation! Each test starts with fresh database state.
+
+**Subcomponent 3c: Procedure Executor (`procedure_executor.py`)**
+```python
+def execute_procedure(sp_name, input_params, db_connection):
+    """
+    Input:
+      - sp_name: 'usp_CreateUpdateSchedulingTeam' (stored proc name)
+      - input_params: {'schedulingTeamName': 'team1', 'divisionId': 6, ...}
+      - db_connection: SQLAlchemy connection
+    
+    Process:
+      1. Create callable: connection.run_sync(lambda c: c.execute(...))
+      2. Pass parameters to SP
+      3. SP executes in SQL Server
+      4. Capture return code & output parameters
+    
+    Output:
+      {
+        'return_code': 1 (success) or 0 (failure),
+        'new_team_id': 123 (if Create succeeded),
+        'message': 'record inserted successfully',
+        'affected_rows': 1
+      }
+    """
+```
+
+**Subcomponent 3d: Chain Executor (`chain_executor.py`)**
+```python
+# Execute Create then Edit in same transaction:
+result1 = execute_procedure('usp_CreateUpdateSchedulingTeam', create_params)
+# SP generates new_team_id = 123
+
+result2 = execute_procedure('usp_CreateUpdateSchedulingTeam', edit_params)
+# Edit_params uses new_team_id from result1
+# Both succeed or both rollback
+```
+
+---
+
+#### **Component 4: Validation Layer (`validation_layer/`)**
+
+```python
+def validate_result(result, expected_result, validators):
+    """
+    Input:
+      - result: SP output (what actually happened)
+      - expected_result: 'record inserted successfully' (what should happen)
+      - validators: [check_return_code, check_message, check_row_count]
+    
+    Process:
+      1. Run each validator
+      2. Check: return_code == 1? message matches? rows inserted? etc.
+      3. Collect all failures
+    
+    Output: Pass or Fail with detailed error messages
+    """
+```
+
+**Example Validators**:
+- `generic_validators.py`: Is return_code 0? Is message not null?
+- `schGroup_validator.py`: Is divisionId valid? Does team already exist?
+
+---
+
+#### **Component 5: Test Engine (`test_engine_layer/`)**
+
+**Subcomponent 5a: Builder (`builder.py`)**
+```python
+def build_test_cases(test_data):
+    """
+    Convert raw test data to runnable test cases
+    Input: {'Create_New_Schd_Team_01': {'test_parameters': '{"schedulingTeamName":"team1",...}'}}
+    Output: [TestCase(id='...', operation='...', params={...}), ...]
+    """
+```
+
+**Subcomponent 5b: Parameter Manager (`parameter_manager.py`)**
+```python
+def extract_test_parameters(json_string):
+    """
+    Input: '{"schedulingTeamName":"team1","divisionId":6,...}'
+    Output: {'schedulingTeamName': 'team1', 'divisionId': 6, ...} (Python dict)
+    Purpose: Parse JSON parameters from CSV
+    """
+```
+
+**Subcomponent 5c: Template Transformer (`template_transformer.py`)**
+```python
+def merge_template_with_overrides(template, test_params):
+    """
+    Purpose: Allow parameterized tests (override template values)
+    Input:
+      template: {'schedulingTeamName': 'default_team', 'divisionId': 1, ...}
+      test_params: {'schedulingTeamName': 'custom_team'} (only overrides)
+    Output: {'schedulingTeamName': 'custom_team', 'divisionId': 1, ...} (merged)
+    """
+```
+
+**Subcomponent 5d: Utils (`utils.py`)**
+```python
+def get_test_case_ids_by_operation(operation):
+    """Filter test cases by operation (Create/Edit/Delete) and Executed=yes"""
+
+def load_test_data():
+    """Load from CSV/XLSX/JSON and normalize"""
+
+def get_test_case(case_id):
+    """Fetch specific test case by ID"""
+```
+
+---
+
+### 🧪 **Part 3: Complete Test Execution Flow (E2E)**
+
+#### **Step 1: User runs pytest**
+```bash
+cd c:\sp_validation
+pytest tests/test_create_01.py -v --count=5
+```
+
+#### **Step 2: Test Discovery**
+```
+pytest reads:
+  - Scans tests/ folder
+  - Finds test_create_01.py
+  - Calls get_test_case_ids_by_operation('Create')
+  - Gets: ['Create_New_Schd_Team_01', 'Create_Duplicate_Team_01', 'Create_LongText_06']
+  - Creates parametrized test 3 times (one for each)
+```
+
+#### **Step 3: pytest_configure (conftest.py)**
+```
+- Validates config:
+  - At least 1 Create test enabled? ✓
+  - Create & Duplicate params match? ✓
+  - Database connection works? ✓
+- If fails → pytest exits with error
+- If passes → Continue
+```
+
+#### **Step 4: Database Connection**
+```
+connection.py:
+  Connection string: Server=SQLSERVER;Database=TestDB;Trusted_Connection=True
+  → SQLAlchemy Engine created
+  → Metadata loaded (table schemas, SP definitions)
+```
+
+#### **Step 5: Test Execution (per test case)**
+```
+For test_case_id = 'Create_New_Schd_Team_01':
+
+  5.1. Load test data
+       - CSV row: Module, Operation, Test Case ID, Executed, expected_result, test_parameters
+  
+  5.2. Extract parameters
+       - JSON: {"schedulingTeamName":"team1","divisionId":6,...}
+       → Python dict
+  
+  5.3. Start transaction
+       - transaction_manager.begin()  # Database snapshot
+  
+  5.4. Execute stored procedure
+       - SP: usp_CreateUpdateSchedulingTeam
+       - Params: {schedulingTeamName: 'team1', divisionId: 6, task: 'create', ...}
+       - Output: {return_code: 1, new_team_id: 456, message: 'record inserted successfully'}
+  
+  5.5. Validate result
+       - Expected: 'record inserted successfully'
+       - Actual: Output message
+       - Validators run: return_code==1? message matches? ✓
+  
+  5.6. Check database side effects
+       - Query: SELECT * FROM SchedulingTeams WHERE TeamID = 456
+       - Assert: Row exists + data matches params
+  
+  5.7. Log results
+       - execution_gw0.log: "PASS: Create_New_Schd_Team_01"
+       - output_dir/stdout.txt: Captured print statements
+  
+  5.8. Cleanup
+       - transaction_manager.rollback()  # Restore database
+       - Close resources
+```
+
+#### **Step 6: Edit Tests (if Create succeeded)**
+```
+If Create_New_Schd_Team_01 PASSED:
+  - new_team_id = 456 (extracted)
+  - Edit_New_Schd_Team_01 parameters are injected with this ID
+  - Edit runs in SAME transaction with Create
+  - If Edit fails → entire transaction rolls back
+  
+If Create_New_Schd_Team_01 FAILED:
+  - Edit_New_Schd_Team_01 is SKIPPED (no valid team ID)
+```
+
+#### **Step 7: Report Generation**
+```
+After all tests complete:
+
+  7.1. Collect results
+       - Test IDs, statuses (pass/fail), execution times
+       - Error messages, assertion failures
+  
+  7.2. Generate HTML report
+       - pytest-html plugin creates sp_automation_report.html
+       - Shows: Summary (3 passed, 1 failed), pie charts, test details
+  
+  7.3. Output structure
+       output/
+       ├── reports/
+       │   └── sp_automation_report.html      # Main report (open in browser)
+       └── tests/
+           └── test_create_01.py/
+               ├── test_create_team[Create_New_Schd_Team_01]/
+               │   ├── execution_gw0.log      # Detailed logs
+               │   ├── stdout.txt
+               │   └── stderr.txt
+               └── ...
+```
+
+---
+
+### 🚀 **Part 4: How to Execute Tests**
+
+#### **Option 1: Run all tests**
+```bash
+pytest tests/ -v
+```
+Output: Runs all test files (test_create_01.py, test_edit_01.py, etc.)
+
+#### **Option 2: Run specific test file**
+```bash
+pytest tests/test_create_01.py -v
+```
+Output: Only CREATE operation tests
+
+#### **Option 3: Run specific test case**
+```bash
+pytest tests/test_create_01.py::test_create_team[Create_New_Schd_Team_01] -v
+```
+Output: Only this one test case
+
+#### **Option 4: Run with parallel workers**
+```bash
+pytest tests/ -v -n 4  # Use 4 CPU cores
+```
+Output: Tests run in parallel (thread-safe, each has own transaction)
+
+#### **Option 5: Check test report**
+```bash
+start output/reports/sp_automation_report.html  # Open HTML report
+```
+
+---
+
+### 🔗 **Part 5: Test Dependency Logic**
+
+#### **The Simple Rule**
+```
+Edit can only happen if Create succeeded AND generated an ID
+```
+
+#### **How It Works**
+
+**Scenario 1: Create succeeds**
+```
+Test flow:
+  1. Create_New_Schd_Team_01 runs
+     - SP: usp_CreateUpdateSchedulingTeam(task='create', ...)
+     - Result: return_code=1, new_team_id=456 ✓
+  
+  2. Because Create succeeded:
+     - Extract new_team_id=456
+     - Inject into Edit_New_Schd_Team_01 parameters
+     - Edit runs with this team ID
+     - Both in SAME transaction
+```
+
+**Scenario 2: Create fails**
+```
+Test flow:
+  1. Create_Invalid_Values_02 runs
+     - SP: usp_CreateUpdateSchedulingTeam(divisionId='ABC', ...) ❌ (invalid type)
+     - Result: return_code=0 (error), no new_team_id
+  
+  2. Because Create failed:
+     - Edit tests referencing this Create are SKIPPED
+     - (No valid team ID to update)
+  
+  3. Validation passes:
+     - expected_result='Error converting data type' matches actual error ✓
+```
+
+**Scenario 3: Duplicate prevention**
+```
+Test flow:
+  1. Create_New_Schd_Team_01 runs (first time)
+     - schedulingTeamName='team_xyz'
+     - Result: ✓ Created (new_team_id=456)
+  
+  2. Create_Duplicate_Team_01 runs (same team name)
+     - schedulingTeamName='team_xyz' (SAME as above)
+     - SP rejects duplicate
+     - Result: return_code=0, error='already exists'
+     - expected_result='already exists' matches ✓
+```
+
+#### **No Cross-Test Dependencies**
+```
+❌ BAD (avoid):
+  - Create_Test_1 depends on Create_Test_2 succeeding
+  - Can't run tests independently
+  - Brittle, hard to debug
+
+✓ GOOD (current design):
+  - Each Create test is independent
+  - Edit depends only on ITS OWN Create (in same transaction)
+  - All tests runnable in any order
+  - Parallel execution safe
+```
+
+---
+
+### 📊 **Part 6: Report Generation Details**
+
+#### **What the Report Shows**
+
+```html
+<!-- output/reports/sp_automation_report.html -->
+┌─────────────────────────────────────────┐
+│ Test Summary                             │
+│ ─────────────────────────────────────── │
+│ Total: 15 tests                         │
+│ Passed: 11 (73%)                        │
+│ Failed: 3 (20%)                         │
+│ Skipped: 1 (7%)                         │
+└─────────────────────────────────────────┘
+
+Breakdown:
+  ✓ Create_New_Schd_Team_01: PASSED (1.23s)
+  ✓ Edit_New_Schd_Team_01: PASSED (0.87s)
+  ✗ Create_Invalid_Values_02: PASSED (expected failure) (0.92s)
+    • Expected 'Error converting data type'
+    • Got 'Error converting data type' ✓
+  ✓ Create_LongText_06: PASSED (1.05s)
+  ...
+```
+
+#### **How Report is Generated**
+
+```python
+# After all tests complete:
+1. pytest hooks into result callback
+2. Collects: test_ids, statuses, durations, error messages
+3. Calls: pytest-html plugin
+4. Generates: sp_automation_report.html
+5. File location: output/reports/sp_automation_report.html
+```
+
+#### **View Report**
+```bash
+# Windows
+start output\reports\sp_automation_report.html
+
+# Linux/Mac
+open output/reports/sp_automation_report.html
+```
+
+---
+
+### 🔍 **Part 7: Key Configuration Files**
+
+#### **`pytest.ini`**
+```ini
+[pytest]
+testpaths = tests/
+python_files = test_*.py
+python_classes = Test*
+python_functions = test_*
+addopts = --html=output/reports/sp_automation_report.html --self-contained-html
+log_cli = true
+log_cli_level = INFO
+```
+Purpose: Tell pytest where tests are, how to discover them, what plugins to use
+
+#### **`config/config.py`**
+```python
+DATABASE_URLS = {
+    'dev': 'mssql+pyodbc://SERVER/TestDB?trusted_connection=yes',
+    'staging': '...',
+    'prod': '...'
+}
+
+TEST_DATA_FILE_PATH = 'keyword_driven_tests.csv'
+TEST_DATA_BACKUP_PATH = 'data_layer/test_data/'
+```
+Purpose: Centralize configuration (change DB → edit here once)
+
+#### **`requirements.txt`**
+```
+pytest==7.4.0
+sqlalchemy==2.0.21
+pandas==2.0.3
+openpyxl==3.1.2
+pytest-html==3.2.0
+pytest-xdist==3.3.1  # For parallel execution
+```
+Purpose: Specify exact library versions (reproducible environments)
+
+---
+
+### 🛠️ **Part 8: Debugging & Troubleshooting**
+
+#### **Scenario 1: Test fails with "Connection refused"**
+```
+Problem: Database connection failed
+Solution:
+  1. Check config/config.py - correct server name?
+  2. Check network connectivity: ping SERVER
+  3. Check SQL Server is running
+  4. Check credentials (Trusted_Connection=yes in Windows Auth)
+```
+
+#### **Scenario 2: Test passes but data not in database**
+```
+Problem: Test reports success but tables empty
+Reason: Transaction was rolled back (isolation feature!)
+Explanation:
+  - Each test: BeginTransaction → Execute → Rollback
+  - Database intentionally reset after each test
+Solution:
+  - This is by design! Tests don't pollute database
+  - To verify data: Add assertions BEFORE rollback in test
+```
+
+#### **Scenario 3: Edit test skipped**
+```
+Problem: Edit_New_Schd_Team_01 doesn't run
+Possible cause: Create_New_Schd_Team_01 failed
+Solution:
+  1. Run Create test alone: pytest tests/test_create_01.py::test_create_team[Create_New_Schd_Team_01]
+  2. Check logs: output/tests/test_create_01.py/.../execution_gw0.log
+  3. Fix the Create test first
+  4. Edit will automatically run once Create succeeds
+```
+
+#### **Scenario 4: Need to enable/disable tests**
+```
+Solution: Edit keyword_driven_tests.csv
+  - Find test row
+  - Change Executed column: 'yes' → 'no' (disable) or 'no' → 'yes' (enable)
+  - Save file
+  - Re-run tests: pytest tests/ -v
+```
+
+---
+
+### ✅ **Part 9: Best Practices**
+
+1. **Keep test data independent**: Each Create test should work standalone
+2. **Use meaningful test case IDs**: Create_LongText_06 clearly describes what it tests
+3. **Write clear expected_result**: Help future developers understand intent
+4. **Check logs after failures**: output/tests/.../execution_gw0.log has details
+5. **Run tests frequently**: Before committing code changes
+6. **Review HTML report**: Shows overall health of stored procedures
+7. **Parallel execution**: Use `pytest -n auto` for speed (auto-detects CPU cores)
+8. **Test database state**: Ensure pre-conditions are met before running tests
+
+---
+
+This section provides everything a new user needs to understand the framework!
                 # ✅ Row 1: 'Create' == 'Create' ✓ and True ✓ → ADD 'Create_New_Schd_Team_01'
                 # ✅ Row 2: 'Create' == 'Create' ✓ and True ✓ → ADD 'Create_Duplicate_Team_01'
                 # ❌ Row 3: 'Create' == 'Create' ✓ but False ✗ → SKIP
