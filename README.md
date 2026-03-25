@@ -13,7 +13,33 @@ git clone <repository-url>
 cd Automation_SP
 ```
 
-### Step 2: Install Python Dependencies
+### Step 2: Create Virtual Environment
+```bash
+python -m venv venv
+```
+
+### Step 3: Activate Virtual Environment
+**Windows (PowerShell):**
+```powershell
+.\venv\Scripts\Activate.ps1
+```
+
+**Windows (CMD):**
+```cmd
+venv\Scripts\activate.bat
+```
+
+**macOS/Linux (Bash):**
+```bash
+source venv/bin/activate
+```
+
+After activation, your prompt will show `(venv)` prefix:
+```
+(venv) C:\Automation_SP>
+```
+
+### Step 4: Install Python Dependencies
 ```bash
 python -m pip install -r requirements.txt
 ```
@@ -25,7 +51,7 @@ This installs:
 - `PyYAML` - YAML parsing
 - `openpyxl` - Excel file support
 
-### Step 3: Configure Database Connection
+### Step 5: Configure Database Connection
 Create a `.env` file in the root directory with your database credentials:
 ```
 DB_HOST=your_server_name
@@ -36,7 +62,7 @@ DB_NAME=your_database_name
 
 See `config/config.py` for all available configuration options.
 
-### Step 4: Run Tests
+### Step 6: Run Tests
 **Run all tests:**
 ```bash
 python -m pytest
@@ -57,11 +83,57 @@ python -m pytest tests/test_create_01.py::test_create_team[Create_New_Schd_Team_
 python -m pytest -n auto
 ```
 
-### Step 5: Check Test Results
+### Step 7: Check Test Results
 Test execution creates:
 - Console output with pass/fail results
 - Transaction rollback ensures database isolation (no test data left behind)
 - CSV validation reports in `data_layer/test_data/`
+
+### Step 8: Deactivate Virtual Environment (When Done)
+When you're finished testing, deactivate the virtual environment:
+
+**Windows (PowerShell):**
+```powershell
+.\venv\Scripts\Deactivate.ps1
+```
+
+**Windows (CMD):**
+```cmd
+venv\Scripts\deactivate.bat
+```
+
+**macOS/Linux (Bash):**
+```bash
+deactivate
+```
+
+The `(venv)` prefix will disappear from your prompt:
+```powershell
+C:\Automation_SP>  # Back to normal prompt
+```
+
+---
+
+### Utility: Inspect Available Test Cases
+**Purpose**: Quickly see which test cases are available in your test data file
+
+**File**: [check_csv.py](check_csv.py)
+```python
+python check_csv.py
+```
+
+**Output**:
+```
+Create_New_Schd_Team_01 - Create
+Create_EmptyTeamName - Create
+Create_Duplicate_Team_01 - Create
+Create_Invalid_Values_02 - Create
+```
+
+This utility reads `keyword_driven_tests.csv` (or `.xlsx`/`.json`) and displays all test case IDs and their operations. Useful for:
+- Verifying available test cases before running tests
+- Finding exact test case names to pass to pytest with `-k` filter
+- Quick validation that test data was loaded correctly
 
 ---
 
