@@ -1,4 +1,4 @@
-# Scheduling Platform Validation Framework
+# SP Validation Framework
 
 ## Overview
 This is a **keyword-driven test framework** that executes database stored procedures, validates results, and maintains test isolation using transactions. It supports parallel execution and works with multiple data formats (CSV, XLSX, JSON).
@@ -78,18 +78,7 @@ python -m pytest tests/test_create_01.py -v
 python -m pytest tests/test_create_01.py::test_create_team[Create_New_Schd_Team_01] -v
 ```
 
-**Run with parallel execution (multiple workers):**
-```bash
-python -m pytest -n auto
-```
-
-### Step 7: Check Test Results
-Test execution creates:
-- Console output with pass/fail results
-- Transaction rollback ensures database isolation (no test data left behind)
-- CSV validation reports in `data_layer/test_data/`
-
-### Step 8: Deactivate Virtual Environment (When Done)
+### Step 7: Deactivate Virtual Environment (When Done)
 When you're finished testing, deactivate the virtual environment:
 
 **Windows (PowerShell):**
