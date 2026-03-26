@@ -1,0 +1,14 @@
+.env
+resources
+venv
+__pycache__
+contrib
+*.pyc
+output
+.pytest_cache
+.vscode
+reports
+
+
+
+
